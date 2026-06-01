@@ -1,6 +1,6 @@
+use sha2::Digest;
 use tauri::{command, AppHandle};
 use tokio::sync::oneshot;
-use sha2::Digest;
 
 // Import necessary Extension Traits and Types
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -103,10 +103,7 @@ pub async fn shell_open(
 }
 
 #[command]
-pub async fn reveal_in_folder(
-    app_handle: AppHandle,
-    file_path: String,
-) -> Result<(), String> {
+pub async fn reveal_in_folder(app_handle: AppHandle, file_path: String) -> Result<(), String> {
     app_handle
         .opener()
         .reveal_item_in_dir(file_path)
@@ -143,6 +140,11 @@ pub fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
             old_path, new_path, e
         )
     })
+}
+
+#[command]
+pub fn delete_file(path: String) -> Result<(), String> {
+    std::fs::remove_file(&path).map_err(|e| format!("Failed to delete file '{}': {}", path, e))
 }
 
 #[cfg(test)]

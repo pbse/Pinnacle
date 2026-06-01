@@ -1,7 +1,7 @@
 use crate::pdf::utils::manual_deep_copy;
 use lopdf::{dictionary, Document, Object};
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 #[tauri::command]
 pub fn reorder_pages(path: &str, new_order: Vec<u32>, output_path: &str) -> Result<(), String> {
@@ -20,7 +20,7 @@ pub fn reorder_pages(path: &str, new_order: Vec<u32>, output_path: &str) -> Resu
 
     let source_pages_map = doc.get_pages();
     let mut page_ids_to_copy = Vec::with_capacity(new_order.len());
-    
+
     for &page_num in &new_order {
         match source_pages_map.get(&page_num) {
             Some(&page_id) => page_ids_to_copy.push(page_id),
@@ -41,7 +41,7 @@ pub fn reorder_pages(path: &str, new_order: Vec<u32>, output_path: &str) -> Resu
     for old_id in &page_ids_to_copy {
         let &new_id = object_map.get(old_id).unwrap();
         new_kids.push(Object::Reference(new_id));
-        
+
         if let Ok(page_obj) = new_doc.get_object_mut(new_id) {
             if let Ok(page_dict) = page_obj.as_dict_mut() {
                 page_dict.set("Parent", Object::Reference(new_pages_id));
@@ -64,9 +64,13 @@ pub fn reorder_pages(path: &str, new_order: Vec<u32>, output_path: &str) -> Resu
             "Pages" => Object::Reference(new_pages_id),
         }),
     );
-    new_doc.trailer.set("Root", Object::Reference(new_catalog_id));
+    new_doc
+        .trailer
+        .set("Root", Object::Reference(new_catalog_id));
     new_doc.compress();
-    new_doc.save(output_path).map_err(|e| format!("Failed to save: {}", e))?;
+    new_doc
+        .save(output_path)
+        .map_err(|e| format!("Failed to save: {}", e))?;
 
     Ok(())
 }
@@ -81,15 +85,15 @@ mod tests {
         let (test_dir, output_dir) = setup_unique_paths("reorder_success");
         let input_path = test_dir.join("input.pdf");
         create_minimal_pdf(input_path.to_str().unwrap(), 3, "Test Page").unwrap();
-        
+
         let output_path = output_dir.join("output.pdf");
         // Reverse order
         let result = reorder_pages(
             input_path.to_str().unwrap(),
             vec![3, 2, 1],
-            output_path.to_str().unwrap()
+            output_path.to_str().unwrap(),
         );
-        
+
         assert!(result.is_ok());
         let output_doc = Document::load(output_path).unwrap();
         assert_eq!(output_doc.get_pages().len(), 3);

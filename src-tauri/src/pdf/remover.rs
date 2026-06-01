@@ -4,7 +4,11 @@ use std::fs;
 use std::path::Path;
 
 #[tauri::command]
-pub fn delete_pages(path: &str, pages_to_delete: Vec<u32>, output_path: &str) -> Result<(), String> {
+pub fn delete_pages(
+    path: &str,
+    pages_to_delete: Vec<u32>,
+    output_path: &str,
+) -> Result<(), String> {
     if pages_to_delete.is_empty() {
         return Err("The list of pages to delete cannot be empty.".to_string());
     }
@@ -26,7 +30,8 @@ pub fn delete_pages(path: &str, pages_to_delete: Vec<u32>, output_path: &str) ->
         }
     }
 
-    let mut doc = Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
+    let mut doc =
+        Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
 
     let page_count = doc.get_pages().len() as u32;
     let mut pages_to_delete_set = BTreeSet::new();

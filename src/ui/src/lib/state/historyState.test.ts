@@ -5,7 +5,19 @@ import { chatState } from './chatState.svelte';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockImplementation((cmd) => {
-    if (cmd === 'pdf_to_text_string') return Promise.resolve('mocked full text');
+    if (cmd === 'pdf_to_layout_json') {
+      return Promise.resolve(JSON.stringify({
+        pages: [
+          {
+            page: 1,
+            width: 612.0,
+            height: 792.0,
+            text: 'mocked full text',
+            text_items: []
+          }
+        ]
+      }));
+    }
     if (cmd === 'get_file_hash') return Promise.resolve('mocked_hash');
     return Promise.resolve();
   })

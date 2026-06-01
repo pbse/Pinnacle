@@ -325,7 +325,7 @@ mod tests {
             "Error message should contain path: {}",
             err_msg
         );
-        
+
         teardown_unique_paths(&test_dir, &output_dir);
     }
 

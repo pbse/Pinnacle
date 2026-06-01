@@ -8,8 +8,15 @@ mod pdf;
 
 // Use the re-exported functions directly from the 'pdf' module
 use crate::pdf::{
-    add_annotation, add_ink_annotation, delete_annotation, update_annotation_contents, replace_text_block, pdf_to_docx, add_signature_visual, delete_pages, extract_pdf_page, merge_pdfs, parse_pdf,
-    rotate_pdf, sign_pdf_pfx, split_pdf, verify_signatures, sanitize_pdf, reorder_pages, compress_pdf, decrypt_pdf, encrypt_pdf, flatten_annotations, images_to_pdf, pdf_to_images, add_watermark, start_folder_watcher, forensic_redact, compare_pdfs_text, update_metadata, batch_update_metadata, get_pdf_outline, set_pdf_outline, get_annotations, get_form_fields, set_form_fields, create_form_fields, pdf_to_text, pdf_to_text_string, write_text_file, markdown_to_pdf, generate_briefing,
+    add_annotation, add_ink_annotation, add_signature_visual, add_watermark, batch_update_metadata,
+    compare_pdfs_text, compress_pdf, create_form_fields, decrypt_pdf, delete_annotation,
+    delete_pages, encrypt_pdf, extract_pdf_page, flatten_annotations, forensic_redact,
+    generate_briefing, get_annotations, get_form_fields, get_pdf_outline, images_to_pdf,
+    markdown_to_pdf, merge_pdfs, office_to_pdf, parse_pdf, pdf_to_docx, pdf_to_images,
+    pdf_to_layout_json, pdf_to_text, pdf_to_text_string, reorder_pages, replace_text_block,
+    rotate_pdf, sanitize_pdf, set_form_fields, set_pdf_outline, sign_pdf_pfx, split_pdf,
+    start_folder_watcher, update_annotation_contents, update_metadata, verify_signatures,
+    write_text_file,
 };
 
 fn main() {
@@ -57,7 +64,16 @@ fn main() {
             pdf_to_images,
             add_watermark,
             start_folder_watcher,
- forensic_redact, markdown_to_pdf, generate_briefing, compare_pdfs_text, update_metadata, batch_update_metadata, get_pdf_outline, set_pdf_outline,            get_annotations,
+            forensic_redact,
+            markdown_to_pdf,
+            office_to_pdf,
+            generate_briefing,
+            compare_pdfs_text,
+            update_metadata,
+            batch_update_metadata,
+            get_pdf_outline,
+            set_pdf_outline,
+            get_annotations,
             get_form_fields,
             set_form_fields,
             create_form_fields,
@@ -65,9 +81,8 @@ fn main() {
             pdf_to_docx,
             pdf_to_text,
             pdf_to_text_string,
+            pdf_to_layout_json,
             write_text_file,
-
-
             commands::open_file_dialog,
             commands::save_file_dialog,
             commands::get_os_type,
@@ -78,6 +93,7 @@ fn main() {
             commands::write_file_bytes,
             commands::read_file_bytes,
             commands::rename_file,
+            commands::delete_file,
             // Ensure these names match exactly what's imported above
         ])
         .run(tauri::generate_context!())

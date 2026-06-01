@@ -122,6 +122,11 @@
       }
     } catch (e) { appState.showStatus("Report failed.", true); }
   }
+  function extractLastSentence(text: string): string {
+    if (!text) return "";
+    const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 5);
+    return sentences.length > 0 ? sentences[sentences.length - 1] : text.trim();
+  }
 </script>
 
 <ToolPane title="Assistant" subtitle="AI Intelligence">
@@ -158,10 +163,12 @@
                 <div class="text-[11px] p-3 rounded-2xl shadow-sm leading-relaxed transition-all {msg.role === 'user' ? 'bg-blue-600 text-white ml-8' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 mr-8'}">
                   {#if msg.role === 'assistant'}
                     {@const parts = msg.content.split(/(\[p\. \d+\])/g)}
-                    {#each parts as part}
+                    {#each parts as part, index}
                         {#if part.match(/\[p\. (\d+)\]/)}
                           {@const pageNum = parseInt(part.match(/\d+/)![0])}
-                          <button onclick={() => handleCitationClick(pageNum, msg.content)} class="text-blue-500 font-bold hover:underline">
+                          {@const prevPart = index > 0 ? parts[index - 1] : ""}
+                          {@const lastSentence = extractLastSentence(prevPart)}
+                          <button onclick={() => handleCitationClick(pageNum, lastSentence)} class="text-blue-500 font-bold hover:underline">
                             {part}
                           </button>
                         {:else}

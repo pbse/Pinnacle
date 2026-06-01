@@ -66,8 +66,30 @@ describe('PdfState Rune', () => {
   });
 
   it('should reject non-PDF drops', () => {
-    const paths = ['/test/image.png'];
+    const paths = ['/test/audio.mp3'];
     pdfState.handleDroppedFiles(paths);
     expect(pdfState.viewerFilePath).toBe("");
+  });
+
+  it('should manage pending changes queue correctly', () => {
+    pdfState.clearPendingChanges();
+    expect(pdfState.pendingChanges).toHaveLength(0);
+    
+    const change = {
+      id: 'change-1',
+      target: 'annotate' as const,
+      page: 1,
+      rect: [0, 0, 10, 10],
+      strokes: null,
+      type: 'highlight',
+      color: '#ff0000'
+    };
+    
+    pdfState.addPendingChange(change);
+    expect(pdfState.pendingChanges).toHaveLength(1);
+    expect(pdfState.pendingChanges[0].id).toBe('change-1');
+    
+    pdfState.removePendingChange('change-1');
+    expect(pdfState.pendingChanges).toHaveLength(0);
   });
 });

@@ -1,23 +1,29 @@
-use lopdf::{dictionary, Document, Object, content::Content};
+use lopdf::{content::Content, dictionary, Document, Object};
 
 #[tauri::command]
-pub fn add_watermark(path: &str, text: &str, opacity: f32, color: [f32; 3], output_path: &str) -> Result<(), String> {
+pub fn add_watermark(
+    path: &str,
+    text: &str,
+    opacity: f32,
+    color: [f32; 3],
+    output_path: &str,
+) -> Result<(), String> {
     let mut doc = Document::load(path).map_err(|e| e.to_string())?;
-    
+
     for (_, page_id) in doc.get_pages() {
         // ... (rest of the logic remains the same until content creation)
         let gs_name = "WatermarkGS";
         let font_name = "WatermarkFont";
-        
+
         // Define Graphics State for Opacity
         let gs_dict = dictionary! {
             "Type" => "ExtGState",
             "ca" => opacity,
             "CA" => opacity,
         };
-        
+
         let gs_id = doc.add_object(gs_dict);
-        
+
         let mut existing_res_id = None;
         if let Ok(Object::Dictionary(page_dict)) = doc.get_object(page_id) {
             if let Ok(Object::Reference(id)) = page_dict.get(b"Resources") {
@@ -49,11 +55,14 @@ pub fn add_watermark(path: &str, text: &str, opacity: f32, color: [f32; 3], outp
             } else {
                 lopdf::Dictionary::new()
             };
-            fonts.set(font_name, dictionary! {
-                "Type" => "Font",
-                "Subtype" => "Type1",
-                "BaseFont" => "Helvetica-Bold",
-            });
+            fonts.set(
+                font_name,
+                dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => "Helvetica-Bold",
+                },
+            );
             res_dict.set("Font", Object::Dictionary(fonts));
         }
 
@@ -63,7 +72,8 @@ pub fn add_watermark(path: &str, text: &str, opacity: f32, color: [f32; 3], outp
         );
 
         let content_bytes = content.into_bytes();
-        let content_ops = Content::decode(&content_bytes).map_err(|e| format!("Failed to decode watermark: {}", e))?;
+        let content_ops = Content::decode(&content_bytes)
+            .map_err(|e| format!("Failed to decode watermark: {}", e))?;
         doc.add_to_page_content(page_id, content_ops)
             .map_err(|e| format!("Failed to add watermark content: {}", e))?;
     }
@@ -82,20 +92,20 @@ mod tests {
         let (test_dir, output_dir) = setup_unique_paths("watermark_success");
         let input_path = test_dir.join("input.pdf");
         create_minimal_pdf(input_path.to_str().unwrap(), 2, "Watermark Test").unwrap();
-        
+
         let output_path = output_dir.join("output.pdf");
         let result = add_watermark(
             input_path.to_str().unwrap(),
             "CONFIDENTIAL",
             0.5,
             [1.0, 0.0, 0.0],
-            output_path.to_str().unwrap()
+            output_path.to_str().unwrap(),
         );
-        
+
         assert!(result.is_ok());
         let output_doc = Document::load(output_path).unwrap();
         assert_eq!(output_doc.get_pages().len(), 2);
-        
+
         teardown_unique_paths(&test_dir, &output_dir);
     }
 }

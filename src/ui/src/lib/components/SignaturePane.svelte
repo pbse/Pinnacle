@@ -5,48 +5,10 @@
   import { appState } from "$lib/state/appState.svelte";
   import ToolPane from "./ToolPane.svelte";
 
-  function parseRect(rectStr: string): number[] | null {
-    const parts = rectStr.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
-    if (parts.length !== 4) return null;
-    const nums = parts.map((p) => Number(p));
-    if (nums.some((n) => Number.isNaN(n))) return null;
-    return nums;
-  }
-
-  function parseColorHex(hex: string): [number, number, number] | null {
-    const match = /^#?([a-fA-F0-9]{6})$/.exec(hex.trim());
-    if (!match) return null;
-    const intVal = parseInt(match[1], 16);
-    return [((intVal >> 16) & 255) / 255, ((intVal >> 8) & 255) / 255, (intVal & 255) / 255];
-  }
-
   let makePermanent = $state(true); // Default to true for signatures for better security
 
-  async function handleSignatureVisual() {
-    if (!pdfState.selectedSignatureFile) { appState.showStatus("Please select a PDF to sign.", true); return; }
-    const rectArray = parseRect(pdfState.signatureRectInput);
-    if (!rectArray || pdfState.signatureStrokes.length === 0) { appState.showStatus("Please draw your signature first.", true); return; }
-    const colorArray = parseColorHex(pdfState.signatureColor);
-    
-    const outputPath = await invoke<string | null>("save_file_dialog", { defaultPath: "signed.pdf" });
-    if (!outputPath) return;
-    
-    appState.startLoading("Applying signature...");
-    try {
-      await invoke("add_signature_visual", { path: pdfState.selectedSignatureFile, page: pdfState.viewerPageNumber, rect: rectArray, strokes: pdfState.signatureStrokes, color: colorArray, width: pdfState.signatureWidth ?? 2, outputPath });
-      
-      if (makePermanent) {
-        appState.startLoading("Burning signature into content...");
-        await invoke("flatten_annotations", { path: outputPath, outputPath: outputPath });
-      }
-
-      appState.showStatus(`Signature applied successfully ${makePermanent ? '(Permanent)' : ''}.`, false, outputPath);
-      await invoke("shell_open", { filePath: outputPath });
-    } catch (err) { appState.showStatus(`Error signing: ${err}`, true); }
-  }
-
   async function handleSecureShare() {
-    const file = pdfState.selectedSignatureFile || pdfState.selectedCryptoFile;
+    const file = pdfState.selectedSignatureFile || pdfState.viewerFilePath;
     if (!file) return;
     try {
       let pdfText = await invoke<string>("pdf_to_text_string", { path: file });
@@ -64,41 +26,34 @@
     }
   }
 
-  function openViewer(mode: "points" | "view" = "points") {
-    if (!pdfState.selectedSignatureFile) {
-      appState.showStatus("Please select a PDF file first.", true);
-      return;
-    }
-    pdfState.viewerFilePath = pdfState.selectedSignatureFile;
-    pdfState.viewerMode = mode;
-    pdfState.viewerTarget = "signature";
-  }
   async function selectFile() {
     const result = await invoke<string[]>("open_file_dialog", { multiple: false });
     if (result && result.length > 0) {
       const path = result[0];
       pdfState.setFileForTarget('signature', path);
       pdfState.openTab(path);
-      openViewer('points');
     }
   }
 
-  function signCurrent() {
-    if (pdfState.viewerFilePath) {
-      pdfState.setFileForTarget('signature', pdfState.viewerFilePath);
-      openViewer('points');
+  function openSignPad() {
+    if (!pdfState.selectedSignatureFile && !pdfState.viewerFilePath) {
+      selectFile().then(() => {
+        if (pdfState.selectedSignatureFile) {
+          pdfState.showSignPad = true;
+        }
+      });
+      return;
     }
+    if (!pdfState.selectedSignatureFile && pdfState.viewerFilePath) {
+      pdfState.setFileForTarget('signature', pdfState.viewerFilePath);
+    }
+    pdfState.showSignPad = true;
   }
 </script>
 
 <ToolPane title="Sign">
   <div class="space-y-6">
     <div class="flex flex-col gap-2">
-      {#if pdfState.viewerFilePath && pdfState.selectedSignatureFile !== pdfState.viewerFilePath}
-        <button onclick={signCurrent} class="w-full py-2 px-4 bg-blue-600 text-white rounded-md text-sm font-bold transition-all shadow-md hover:bg-blue-700 uppercase tracking-tight">
-          Sign Current
-        </button>
-      {/if}
       <button onclick={selectFile} class="w-full py-2 px-4 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-md text-sm font-medium transition-colors shadow-sm">
         {pdfState.selectedSignatureFile ? pdfState.selectedSignatureFile.split(/[/\\]/).pop() : 'Select PDF'}
       </button>
@@ -106,15 +61,17 @@
     
     <div class="space-y-4">
       <h3 class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest transition-colors">Drawing</h3>
-      <div class="flex gap-2">
-        <button onclick={() => openViewer('points')} class="flex-1 py-2 bg-blue-600 text-white rounded font-bold text-xs uppercase tracking-widest transition-opacity hover:opacity-90 shadow-md shadow-blue-500/20">Open Pad</button>
-        <button onclick={() => pdfState.signatureStrokes = pdfState.signatureStrokes.slice(0, -1)} disabled={pdfState.signatureStrokes.length === 0} class="p-2 border border-slate-200 dark:border-slate-800 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-20 text-[10px] font-bold uppercase transition-colors text-slate-600 dark:text-slate-300">Undo</button>
-        <button onclick={() => { pdfState.signatureStrokes = []; pdfState.signatureRectInput = ""; }} disabled={pdfState.signatureStrokes.length === 0} class="p-2 border border-red-200 dark:border-red-900 text-red-500 rounded text-[10px] font-bold uppercase transition-colors hover:bg-red-50 dark:hover:bg-red-950/20">Clear</button>
-      </div>
-      {#if pdfState.signatureStrokes.length > 0}
-        <div class="flex items-center gap-2 text-green-600 dark:text-green-500 text-[10px] font-bold uppercase tracking-wider transition-colors">
+      <button 
+        onclick={openSignPad} 
+        class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-xs uppercase tracking-widest transition-colors shadow-md shadow-blue-500/20"
+      >
+        {pdfState.activeStamp ? 'Redraw Signature' : 'Draw New Signature'}
+      </button>
+      
+      {#if pdfState.activeStamp}
+        <div class="flex items-center gap-2 text-green-600 dark:text-green-500 text-[10px] font-bold uppercase tracking-wider transition-colors mt-2">
           <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-          Signature Ready
+          Signature Loaded: Click and drag stamp on document to place
         </div>
       {/if}
     </div>
@@ -133,21 +90,52 @@
         <span class="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 transition-colors uppercase tracking-tight">Non-Deletable Signature (Flatten)</span>
       </label>
 
-      <div class="flex gap-2">
-        <button 
-          onclick={() => !pdfState.selectedSignatureFile ? selectFile() : handleSignatureVisual()} 
-          disabled={!!pdfState.selectedSignatureFile && pdfState.signatureStrokes.length === 0} 
-          class="flex-[2] py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-bold text-xs uppercase tracking-widest transition-all shadow-xl hover:scale-[1.02]"
-        >
-          {!pdfState.selectedSignatureFile ? 'Select PDF' : pdfState.signatureStrokes.length === 0 ? 'Draw Signature' : 'Apply Signature'}
-        </button>
-        <button 
-          onclick={() => !pdfState.selectedSignatureFile ? selectFile() : handleSecureShare()} 
-          class="flex-1 py-3 border border-blue-600 text-blue-600 dark:text-blue-400 rounded-lg font-bold text-[10px] uppercase tracking-widest hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all shadow-md"
-        >
-          {!pdfState.selectedSignatureFile ? 'Select PDF' : 'Share'}
-        </button>
-      </div>
+      <button 
+        onclick={handleSecureShare}
+        disabled={!pdfState.selectedSignatureFile && !pdfState.viewerFilePath}
+        class="w-full py-2.5 border border-blue-600 text-blue-600 dark:text-blue-400 rounded-lg font-bold text-[10px] uppercase tracking-widest hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all shadow-md disabled:opacity-30"
+      >
+        Draft Email Share
+      </button>
     </div>
+
+    <!-- Pending Changes Checklist Area -->
+    {#if pdfState.pendingChanges.length > 0}
+      <div class="mt-6 pt-6 border-t-2 border-slate-950 dark:border-slate-800 transition-colors">
+        <h3 class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">Pending Changes ({pdfState.pendingChanges.length})</h3>
+        <div class="space-y-2 max-h-48 overflow-y-auto mb-4">
+          {#each pdfState.pendingChanges as change}
+            <div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] rounded">
+              <div class="truncate mr-2 font-mono flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-black rounded-xs">p.{change.page}</span>
+                <span class="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider">{change.target === 'signature' ? 'Signature Stamp' : change.type}</span>
+              </div>
+              <button 
+                onclick={() => pdfState.removePendingChange(change.id)} 
+                class="text-red-500 hover:text-red-700 font-bold px-1 transition-colors"
+                title="Remove Change"
+              >
+                ✕
+              </button>
+            </div>
+          {/each}
+        </div>
+        
+        <div class="flex flex-col gap-2">
+          <button 
+            onclick={() => pdfState.commitAllPending(makePermanent)} 
+            class="w-full py-3 bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-2 border-slate-950 dark:border-white font-black text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)]"
+          >
+            Apply All & Save
+          </button>
+          <button 
+            onclick={() => pdfState.clearPendingChanges()} 
+            class="w-full py-1.5 text-center text-[10px] font-bold text-red-500 hover:underline uppercase tracking-wider"
+          >
+            Clear All Changes
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 </ToolPane>

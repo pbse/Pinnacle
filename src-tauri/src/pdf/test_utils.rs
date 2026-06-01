@@ -26,8 +26,7 @@ pub fn create_minimal_pdf(
 
     let mut kids = Vec::new();
     for i in 1..=num_pages {
-        let content_str =
-            format!("BT /F1 12 Tf 100 700 Td ({}-Page {}) Tj ET", text_prefix, i);
+        let content_str = format!("BT /F1 12 Tf 100 700 Td ({}-Page {}) Tj ET", text_prefix, i);
         let content_stream = Stream::new(dictionary! {}, content_str.into_bytes());
         let content_id = doc.add_object(content_stream);
 

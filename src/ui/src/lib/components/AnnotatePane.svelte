@@ -21,54 +21,47 @@
 
   let makePermanent = $state(false);
 
-  async function handleAnnotate() {
+  function queueAnnotation() {
     if (!pdfState.selectedAnnotateFile) { appState.showStatus("Please select a PDF to annotate.", true); return; }
     if (!pdfState.viewerPageNumber || pdfState.viewerPageNumber <= 0) { appState.showStatus("Enter a valid page number.", true); return; }
     
     const colorArray = parseColorHex(pdfState.annotationColor);
     if (!colorArray) { appState.showStatus("Invalid color.", true); return; }
     
-    const outputPath = await invoke<string | null>("save_file_dialog", { defaultPath: "annotated.pdf" });
-    if (!outputPath) return;
+    let rect: number[] | null = null;
+    let strokes: [number, number][][] | null = null;
     
-    appState.startLoading("Adding annotation...");
-    try {
-      if (pdfState.annotationType === "ink") {
-        if (pdfState.annotationStrokes.length === 0) {
-          appState.showStatus("No drawings to apply.", true);
-          return;
-        }
-        await invoke("add_ink_annotation", { 
-          path: pdfState.selectedAnnotateFile, 
-          page: pdfState.viewerPageNumber, 
-          gestures: pdfState.annotationStrokes, 
-          color: colorArray, 
-          width: 2.0,
-          outputPath 
-        });
-      } else {
-        const rectArray = parseRect(pdfState.annotationRectInput);
-        if (!rectArray) { appState.showStatus("Invalid rect selection.", true); return; }
-        
-        await invoke("add_annotation", { 
-          path: pdfState.selectedAnnotateFile, 
-          page: pdfState.viewerPageNumber, 
-          rect: rectArray, 
-          kind: pdfState.annotationType, 
-          contents: pdfState.annotationText || null, 
-          color: colorArray, 
-          outputPath 
-        });
+    if (pdfState.annotationType === "ink") {
+      if (pdfState.annotationStrokes.length === 0) {
+        appState.showStatus("Please draw on the document first.", true);
+        return;
       }
-      
-      if (makePermanent) {
-        appState.startLoading("Burning annotation into content...");
-        await invoke("flatten_annotations", { path: outputPath, outputPath: outputPath });
-      }
-
-      appState.showStatus(`Annotation added successfully ${makePermanent ? '(Permanent)' : ''}.`, false, outputPath);
-      await invoke("shell_open", { filePath: outputPath });
-    } catch (err) { appState.showStatus(`Error adding annotation: ${err}`, true); }
+      strokes = [...pdfState.annotationStrokes];
+    } else {
+      rect = parseRect(pdfState.annotationRectInput);
+      if (!rect) { appState.showStatus("Please select an area on the document first.", true); return; }
+    }
+    
+    const change = {
+      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+      target: "annotate" as const,
+      page: pdfState.viewerPageNumber,
+      rect,
+      strokes,
+      type: pdfState.annotationType,
+      text: pdfState.annotationText || undefined,
+      color: pdfState.annotationColor,
+      width: 2.0
+    };
+    
+    pdfState.addPendingChange(change);
+    
+    // Clear rect input and strokes so user can draw/select again
+    pdfState.annotationRectInput = "";
+    pdfState.annotationStrokes = [];
+    pdfState.annotationText = "";
+    
+    appState.showStatus("Annotation added to queue. Add more, or apply changes below.", false);
   }
 
   function openViewer(mode: "rect" | "points" | "view" = "rect") {
@@ -93,6 +86,7 @@
        openViewer(pdfState.viewerMode);
     }
   }
+
   async function selectFile() {
     const result = await invoke<string[]>("open_file_dialog", { multiple: false });
     if (result && result.length > 0) {
@@ -133,7 +127,7 @@
         <label for="annotate-rect" class="text-[10px] font-bold text-slate-500 uppercase tracking-widest transition-colors">Selection Area</label>
         <div class="flex gap-2">
           <input id="annotate-rect" type="text" bind:value={pdfState.annotationRectInput} class="flex-1 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-900 dark:text-white outline-none font-mono transition-colors focus:ring-2 focus:ring-blue-500 shadow-sm" placeholder="x1, y1, x2, y2" />
-          <button onclick={() => openViewer('rect')} class="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded border border-blue-100 dark:border-blue-900 hover:bg-blue-100 transition-colors">🎯</button>
+          <button onclick={() => openViewer(pdfState.annotationType === 'ink' ? 'points' : 'rect')} class="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded border border-blue-100 dark:border-blue-900 hover:bg-blue-100 transition-colors">🎯</button>
         </div>
       </div>
 
@@ -176,7 +170,7 @@
 
       <div class="space-y-1.5">
         <label for="annotate-content" class="text-[10px] font-bold text-slate-500 uppercase tracking-widest transition-colors">Content</label>
-        <input id="annotate-content" type="text" bind:value={pdfState.annotationText} class="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-900 dark:text-white outline-none transition-colors focus:ring-2 focus:ring-blue-500 shadow-sm" />
+        <input id="annotate-content" type="text" bind:value={pdfState.annotationText} class="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-900 dark:text-white outline-none transition-colors focus:ring-2 focus:ring-blue-500 shadow-sm" placeholder="Optional text label" />
       </div>
 
       <label class="flex items-center gap-2 cursor-pointer pt-2 group">
@@ -191,7 +185,7 @@
           } else if (pdfState.annotationType !== 'ink' && !pdfState.annotationRectInput) {
             openViewer('rect');
           } else {
-            handleAnnotate();
+            queueAnnotation();
           }
         }} 
         class="w-full py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg font-bold text-xs uppercase tracking-widest shadow-lg transition-all hover:scale-[1.02]"
@@ -200,8 +194,47 @@
           ? 'Select PDF' 
           : (pdfState.annotationType !== 'ink' && !pdfState.annotationRectInput) 
             ? 'Enter Selection Mode' 
-            : 'Apply Annotation'}
+            : 'Queue Annotation'}
       </button>
     </div>
+
+    <!-- Pending Changes Checklist Area -->
+    {#if pdfState.pendingChanges.length > 0}
+      <div class="mt-6 pt-6 border-t-2 border-slate-950 dark:border-slate-800 transition-colors">
+        <h3 class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">Pending Changes ({pdfState.pendingChanges.length})</h3>
+        <div class="space-y-2 max-h-48 overflow-y-auto mb-4">
+          {#each pdfState.pendingChanges as change}
+            <div class="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] rounded">
+              <div class="truncate mr-2 font-mono flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-black rounded-xs">p.{change.page}</span>
+                <span class="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider">{change.target === 'signature' ? 'Signature Stamp' : change.type}</span>
+              </div>
+              <button 
+                onclick={() => pdfState.removePendingChange(change.id)} 
+                class="text-red-500 hover:text-red-700 font-bold px-1 transition-colors"
+                title="Remove Change"
+              >
+                ✕
+              </button>
+            </div>
+          {/each}
+        </div>
+        
+        <div class="flex flex-col gap-2">
+          <button 
+            onclick={() => pdfState.commitAllPending(makePermanent)} 
+            class="w-full py-3 bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-2 border-slate-950 dark:border-white font-black text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)]"
+          >
+            Apply All & Save
+          </button>
+          <button 
+            onclick={() => pdfState.clearPendingChanges()} 
+            class="w-full py-1.5 text-center text-[10px] font-bold text-red-500 hover:underline uppercase tracking-wider"
+          >
+            Clear All Changes
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 </ToolPane>

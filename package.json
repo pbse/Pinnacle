@@ -13,7 +13,7 @@
         "dev:ios": "tauri ios dev",
         "build:android": "tauri android build",
         "dev:android": "tauri android dev",
-        "test:backend": "cargo test --manifest-path src-tauri/Cargo.toml",
+        "test:backend": "cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1",
         "test:ui": "npm --prefix src/ui run test:ui",
         "test:e2e": "npm --prefix src/ui run test:e2e",
         "test": "npm run test:backend && npm run test:ui && npm run test:e2e",

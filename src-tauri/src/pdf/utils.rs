@@ -71,7 +71,6 @@ pub fn manual_deep_copy(
     Ok(id_map)
 }
 
-
 pub fn find_references_recursive(
     object: &Object,
     queue: &mut VecDeque<ObjectId>,
@@ -102,7 +101,6 @@ pub fn find_references_recursive(
     }
     Ok(())
 }
-
 
 pub fn update_references_recursive(
     object: &mut Object,

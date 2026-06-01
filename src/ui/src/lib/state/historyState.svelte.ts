@@ -6,6 +6,8 @@ import { db, type DocumentRecord, type CollectionRecord, type ActionRecord, type
 
 export type HistoryItem = DocumentRecord;
 
+const activeIndexJobs = new Set<string>();
+
 export class HistoryState {
   recentFiles = $state<HistoryItem[]>([]);
   collections = $state<CollectionRecord[]>([]);
@@ -138,25 +140,28 @@ export class HistoryState {
     this.isSearching = false;
   }
 
-  async addFile(path: string) {
+  async addFile(path: string, seed: Partial<Pick<DocumentRecord, 'fullText' | 'layoutJson' | 'thumbnail' | 'hash' | 'summary'>> = {}) {
     const name = path.split(/[/\\]/).pop() || path;
     const existing = await db.documents.where('path').equals(path).first();
     
-    // Get full text, thumbnail, and hash
-    let fullText = existing?.fullText;
-    let thumbnail = existing?.thumbnail;
-    let hash = existing?.hash;
-    let summary = existing?.summary;
+    let fullText = seed.fullText ?? existing?.fullText;
+    let layoutJson = seed.layoutJson ?? existing?.layoutJson;
+    let thumbnail = seed.thumbnail ?? existing?.thumbnail;
+    let hash = seed.hash ?? existing?.hash;
+    let summary = seed.summary ?? existing?.summary;
     
-    if (!fullText || !thumbnail || !hash) {
+    if (!fullText || !layoutJson || !thumbnail || !hash) {
       try {
-        if (!fullText) fullText = await invoke<string>("pdf_to_text_string", { path });
+        if (!layoutJson) layoutJson = await invoke<string>("pdf_to_layout_json", { path });
+        if (!fullText) {
+          try {
+            const data = JSON.parse(layoutJson);
+            fullText = data.pages ? data.pages.map((p: any) => p.text).join("\n\n") : "";
+          } catch (e) {
+            fullText = layoutJson;
+          }
+        }
         if (!hash) hash = await invoke<string>("get_file_hash", { path });
-        
-        // Semantic Chunking
-        // Future refinement: use a more sophisticated NLP chunker
-        const chunks = fullText.split(/\n\s*\n/).filter(c => c.trim().length > 50);
-        // Indexing chunks would go into a new table if needed, for now we keep fullText
       } catch (e) { console.error("Data extraction failed", e); }
     }
 
@@ -166,6 +171,7 @@ export class HistoryState {
       timestamp: Date.now(),
       tags: existing?.tags || [],
       fullText,
+      layoutJson,
       thumbnail,
       hash,
       summary
@@ -176,37 +182,45 @@ export class HistoryState {
     await db.documents.put(record);
     await this.loadHistory();
 
-    // Auto-indexing in background
     this.autoIndexDocument(path, fullText);
   }
 
   private async autoIndexDocument(path: string, fullText: string | undefined) {
     if (!fullText) return;
+    if (activeIndexJobs.has(path)) return;
+    activeIndexJobs.add(path);
     
-    const existing = await db.documents.where('path').equals(path).first();
-    let updated = false;
-    let newSummary = existing?.summary;
-    const { chatState } = await import('./chatState.svelte');
-    
-    // 1. Extract Summary
-    if (!existing?.summary) {
-      try {
-        newSummary = await chatState.nameDocument(path);
-        updated = true;
-      } catch (e) { console.error("Auto-summarization failed", e); }
-    }
-
-    // 2. Extract Entities
     try {
-      const insights = await chatState.getDocumentInsights(path);
-      if (insights && (insights.dates?.length > 0 || insights.amounts?.length > 0 || insights.orgs?.length > 0)) {
-        await this.indexEntities(path, insights);
+      const existing = await db.documents.where('path').equals(path).first();
+      let updated = false;
+      let newSummary = existing?.summary;
+      const { chatState } = await import('./chatState.svelte');
+      
+      // 1. Extract Summary
+      if (!existing?.summary) {
+        try {
+          newSummary = await chatState.nameDocument(path);
+          updated = true;
+        } catch (e) { console.error("Auto-summarization failed", e); }
       }
-    } catch (e) { console.error("Auto-entity extraction failed", e); }
 
-    if (updated && newSummary && existing?.id) {
-       await db.documents.update(existing.id, { summary: newSummary });
-       await this.loadHistory();
+      // 2. Extract Entities once; repeated open/import should stay fast.
+      try {
+        const existingEntities = await db.entities.where('docPaths').equals(path).count();
+        if (existingEntities === 0) {
+          const insights = await chatState.getDocumentInsights(path);
+          if (insights && (insights.dates?.length > 0 || insights.amounts?.length > 0 || insights.orgs?.length > 0)) {
+            await this.indexEntities(path, insights);
+          }
+        }
+      } catch (e) { console.error("Auto-entity extraction failed", e); }
+
+      if (updated && newSummary && existing?.id) {
+         await db.documents.update(existing.id, { summary: newSummary });
+         await this.loadHistory();
+      }
+    } finally {
+      activeIndexJobs.delete(path);
     }
   }
 

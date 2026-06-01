@@ -3,7 +3,12 @@ use std::fs;
 use std::path::Path;
 
 #[tauri::command]
-pub fn rotate_pdf(path: &str, pages: Vec<u32>, rotation: i32, output_path: &str) -> Result<(), String> {
+pub fn rotate_pdf(
+    path: &str,
+    pages: Vec<u32>,
+    rotation: i32,
+    output_path: &str,
+) -> Result<(), String> {
     if ![0, 90, 180, 270, -90, -180, -270].contains(&rotation) {
         return Err("Invalid rotation angle. Must be one of 0, 90, 180, 270.".to_string());
     }
@@ -25,7 +30,8 @@ pub fn rotate_pdf(path: &str, pages: Vec<u32>, rotation: i32, output_path: &str)
         }
     }
 
-    let mut doc = Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
+    let mut doc =
+        Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
 
     let page_ids = doc.get_pages();
     let pages_to_rotate: Vec<ObjectId> = if pages.is_empty() {
@@ -43,9 +49,15 @@ pub fn rotate_pdf(path: &str, pages: Vec<u32>, rotation: i32, output_path: &str)
     };
 
     for page_id in pages_to_rotate {
-        let page_dict = doc.get_object_mut(page_id)
+        let page_dict = doc
+            .get_object_mut(page_id)
             .and_then(|obj| obj.as_dict_mut())
-            .map_err(|e: LopdfError| format!("Failed to get page dictionary for page {:?}: {}", page_id, e))?;
+            .map_err(|e: LopdfError| {
+                format!(
+                    "Failed to get page dictionary for page {:?}: {}",
+                    page_id, e
+                )
+            })?;
 
         let current_rotation = page_dict
             .get(b"Rotate")

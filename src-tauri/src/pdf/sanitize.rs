@@ -1,6 +1,6 @@
 use lopdf::{Document, Object};
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 #[tauri::command]
 pub fn sanitize_pdf(path: &str, output_path: &str) -> Result<(), String> {
@@ -10,9 +10,8 @@ pub fn sanitize_pdf(path: &str, output_path: &str) -> Result<(), String> {
     }
     if let Some(parent_dir) = Path::new(output_path).parent() {
         if !parent_dir.exists() {
-            fs::create_dir_all(parent_dir).map_err(|e| {
-                format!("Failed to create output directory: {}", e)
-            })?;
+            fs::create_dir_all(parent_dir)
+                .map_err(|e| format!("Failed to create output directory: {}", e))?;
         }
     }
 
@@ -31,7 +30,8 @@ pub fn sanitize_pdf(path: &str, output_path: &str) -> Result<(), String> {
         }
     }
 
-    doc.save(output_path).map_err(|e| format!("Failed to save sanitized PDF: {}", e))?;
+    doc.save(output_path)
+        .map_err(|e| format!("Failed to save sanitized PDF: {}", e))?;
     Ok(())
 }
 
@@ -51,13 +51,13 @@ mod tests {
 
         // Add some metadata to be removed
         let mut doc = Document::load(input_path.to_str().unwrap()).unwrap();
-        doc.trailer.set("Info", Object::Dictionary(lopdf::dictionary! { "Title" => "Dirty PDF" }));
+        doc.trailer.set(
+            "Info",
+            Object::Dictionary(lopdf::dictionary! { "Title" => "Dirty PDF" }),
+        );
         doc.save(input_path.to_str().unwrap()).unwrap();
 
-        let result = sanitize_pdf(
-            input_path.to_str().unwrap(),
-            output_path.to_str().unwrap()
-        );
+        let result = sanitize_pdf(input_path.to_str().unwrap(), output_path.to_str().unwrap());
 
         assert!(result.is_ok());
         assert!(output_path.exists());

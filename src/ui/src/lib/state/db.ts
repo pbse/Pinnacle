@@ -7,6 +7,7 @@ export interface DocumentRecord {
   timestamp: number;
   tags: string[];
   fullText?: string;
+  layoutJson?: string;
   summary?: string;
   lastPage?: number;
   totalPages?: number;
@@ -43,10 +44,6 @@ export interface ActionRecord {
   description: string;
   timestamp: number;
   resultPath?: string;
-}
-
-export interface ChatRecord {
-// ... existing
 }
 
 export interface WatcherRecord {

@@ -9,15 +9,29 @@ pub struct BriefingItem {
 }
 
 #[tauri::command]
-pub fn generate_briefing(main_title: String, items: Vec<BriefingItem>, output_path: String) -> Result<(), String> {
+pub fn generate_briefing(
+    main_title: String,
+    items: Vec<BriefingItem>,
+    output_path: String,
+) -> Result<(), String> {
     let (doc, page1, layer1) = PdfDocument::new(&main_title, Mm(210.0), Mm(297.0), "Briefing");
     let mut current_layer = doc.get_page(page1).get_layer(layer1);
-    let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold).map_err(|e| e.to_string())?;
-    let font_body = doc.add_builtin_font(BuiltinFont::Helvetica).map_err(|e| e.to_string())?;
+    let font_bold = doc
+        .add_builtin_font(BuiltinFont::HelveticaBold)
+        .map_err(|e| e.to_string())?;
+    let font_body = doc
+        .add_builtin_font(BuiltinFont::Helvetica)
+        .map_err(|e| e.to_string())?;
 
     // Main Header
     current_layer.use_text(&main_title, 28.0, Mm(20.0), Mm(270.0), &font_bold);
-    current_layer.use_text("Executive Knowledge Summary", 12.0, Mm(20.0), Mm(260.0), &font_body);
+    current_layer.use_text(
+        "Executive Knowledge Summary",
+        12.0,
+        Mm(20.0),
+        Mm(260.0),
+        &font_body,
+    );
 
     let mut y = 240.0;
     for item in items {
@@ -34,7 +48,9 @@ pub fn generate_briefing(main_title: String, items: Vec<BriefingItem>, output_pa
         // Wrap summary text (very simple wrap)
         let lines: Vec<&str> = item.summary.split(". ").collect();
         for line in lines {
-            if y < 20.0 { break; }
+            if y < 20.0 {
+                break;
+            }
             current_layer.use_text(line, 10.0, Mm(25.0), Mm(y), &font_body);
             y -= 5.0;
         }
@@ -42,7 +58,8 @@ pub fn generate_briefing(main_title: String, items: Vec<BriefingItem>, output_pa
     }
 
     let file = File::create(&output_path).map_err(|e| e.to_string())?;
-    doc.save(&mut BufWriter::new(file)).map_err(|e| e.to_string())?;
+    doc.save(&mut BufWriter::new(file))
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }

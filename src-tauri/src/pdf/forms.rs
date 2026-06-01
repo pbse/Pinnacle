@@ -27,23 +27,26 @@ pub fn get_form_fields(path: &str) -> Result<Vec<FormField>, String> {
                         for field_ref in field_refs {
                             if let Ok(fid) = field_ref.as_reference() {
                                 if let Ok(Object::Dictionary(field)) = doc.get_object(fid) {
-                                    let name = if let Ok(Object::String(bytes, _)) = field.get(b"T") {
+                                    let name = if let Ok(Object::String(bytes, _)) = field.get(b"T")
+                                    {
                                         String::from_utf8_lossy(bytes).to_string()
                                     } else {
                                         "Unnamed".to_string()
                                     };
 
-                                    let field_type = if let Ok(Object::Name(ft)) = field.get(b"FT") {
+                                    let field_type = if let Ok(Object::Name(ft)) = field.get(b"FT")
+                                    {
                                         String::from_utf8_lossy(ft).to_string()
                                     } else {
                                         "Unknown".to_string()
                                     };
 
-                                    let value = if let Ok(Object::String(bytes, _)) = field.get(b"V") {
-                                        String::from_utf8_lossy(bytes).to_string()
-                                    } else {
-                                        "".to_string()
-                                    };
+                                    let value =
+                                        if let Ok(Object::String(bytes, _)) = field.get(b"V") {
+                                            String::from_utf8_lossy(bytes).to_string()
+                                        } else {
+                                            "".to_string()
+                                        };
 
                                     let rect = if let Ok(Object::Array(arr)) = field.get(b"Rect") {
                                         arr.iter().filter_map(|o| o.as_f32().ok()).collect()
@@ -59,7 +62,13 @@ pub fn get_form_fields(path: &str) -> Result<Vec<FormField>, String> {
                                         1
                                     };
 
-                                    fields.push(FormField { name, field_type, value, page, rect });
+                                    fields.push(FormField {
+                                        name,
+                                        field_type,
+                                        value,
+                                        page,
+                                        rect,
+                                    });
                                 }
                             }
                         }
@@ -73,7 +82,11 @@ pub fn get_form_fields(path: &str) -> Result<Vec<FormField>, String> {
 }
 
 #[tauri::command]
-pub fn set_form_fields(path: &str, updates: std::collections::HashMap<String, String>, output_path: &str) -> Result<(), String> {
+pub fn set_form_fields(
+    path: &str,
+    updates: std::collections::HashMap<String, String>,
+    output_path: &str,
+) -> Result<(), String> {
     let mut doc = Document::load(path).map_err(|e| e.to_string())?;
     let mut field_updates = vec![];
 
@@ -85,7 +98,8 @@ pub fn set_form_fields(path: &str, updates: std::collections::HashMap<String, St
                         for field_ref in field_refs {
                             if let Ok(fid) = field_ref.as_reference() {
                                 if let Ok(Object::Dictionary(field)) = doc.get_object(fid) {
-                                    let name = if let Ok(Object::String(bytes, _)) = field.get(b"T") {
+                                    let name = if let Ok(Object::String(bytes, _)) = field.get(b"T")
+                                    {
                                         String::from_utf8_lossy(bytes).to_string()
                                     } else {
                                         continue;
@@ -93,7 +107,8 @@ pub fn set_form_fields(path: &str, updates: std::collections::HashMap<String, St
 
                                     if let Some(new_value) = updates.get(&name) {
                                         let mut new_field = field.clone();
-                                        new_field.set("V", Object::string_literal(new_value.as_str()));
+                                        new_field
+                                            .set("V", Object::string_literal(new_value.as_str()));
                                         new_field.remove(b"AP");
                                         field_updates.push((fid, new_field));
                                     }
@@ -110,7 +125,8 @@ pub fn set_form_fields(path: &str, updates: std::collections::HashMap<String, St
         doc.objects.insert(fid, Object::Dictionary(field));
     }
 
-    doc.save(output_path).map_err(|e| format!("Failed to save: {}", e))?;
+    doc.save(output_path)
+        .map_err(|e| format!("Failed to save: {}", e))?;
     Ok(())
 }
 
@@ -123,13 +139,25 @@ pub struct NewFormField {
 }
 
 #[tauri::command]
-pub fn create_form_fields(path: &str, new_fields: Vec<NewFormField>, output_path: &str) -> Result<(), String> {
+pub fn create_form_fields(
+    path: &str,
+    new_fields: Vec<NewFormField>,
+    output_path: &str,
+) -> Result<(), String> {
     let mut doc = Document::load(path).map_err(|e| e.to_string())?;
-    
+
     // 1. Ensure AcroForm exists
-    let root_id = doc.trailer.get(b"Root").and_then(|obj| obj.as_reference()).map_err(|_| "No Root found")?;
-    let mut root = doc.get_object(root_id).and_then(|obj| obj.as_dict()).map_err(|_| "Root is not a dict")?.clone();
-    
+    let root_id = doc
+        .trailer
+        .get(b"Root")
+        .and_then(|obj| obj.as_reference())
+        .map_err(|_| "No Root found")?;
+    let mut root = doc
+        .get_object(root_id)
+        .and_then(|obj| obj.as_dict())
+        .map_err(|_| "Root is not a dict")?
+        .clone();
+
     let acroform_id = if let Ok(id) = root.get(b"AcroForm").and_then(|obj| obj.as_reference()) {
         id
     } else {
@@ -142,7 +170,11 @@ pub fn create_form_fields(path: &str, new_fields: Vec<NewFormField>, output_path
         id
     };
 
-    let mut acroform = doc.get_object(acroform_id).and_then(|obj| obj.as_dict()).map_err(|_| "AcroForm is not a dict")?.clone();
+    let mut acroform = doc
+        .get_object(acroform_id)
+        .and_then(|obj| obj.as_dict())
+        .map_err(|_| "AcroForm is not a dict")?
+        .clone();
     let mut global_fields = if let Ok(Object::Array(arr)) = acroform.get(b"Fields") {
         arr.clone()
     } else {
@@ -152,10 +184,17 @@ pub fn create_form_fields(path: &str, new_fields: Vec<NewFormField>, output_path
     let pages = doc.get_pages();
 
     for nf in new_fields {
-        let page_id = *pages.get(&nf.page).ok_or_else(|| format!("Page {} not found", nf.page))?;
-        
-        let rect = Object::Array(vec![nf.rect[0].into(), nf.rect[1].into(), nf.rect[2].into(), nf.rect[3].into()]);
-        
+        let page_id = *pages
+            .get(&nf.page)
+            .ok_or_else(|| format!("Page {} not found", nf.page))?;
+
+        let rect = Object::Array(vec![
+            nf.rect[0].into(),
+            nf.rect[1].into(),
+            nf.rect[2].into(),
+            nf.rect[3].into(),
+        ]);
+
         let mut field_dict = dictionary! {
             "Type" => "Annot",
             "Subtype" => "Widget",
@@ -192,9 +231,11 @@ pub fn create_form_fields(path: &str, new_fields: Vec<NewFormField>, output_path
     }
 
     acroform.set("Fields", global_fields);
-    doc.objects.insert(acroform_id, Object::Dictionary(acroform));
+    doc.objects
+        .insert(acroform_id, Object::Dictionary(acroform));
 
-    doc.save(output_path).map_err(|e| format!("Failed to save: {}", e))?;
+    doc.save(output_path)
+        .map_err(|e| format!("Failed to save: {}", e))?;
     Ok(())
 }
 
@@ -225,19 +266,17 @@ mod tests {
 
         create_minimal_pdf(input_path.to_str().unwrap(), 1, "CreateFormsTest").unwrap();
 
-        let new_fields = vec![
-            NewFormField {
-                name: "TestField".to_string(),
-                field_type: "Tx".to_string(),
-                page: 1,
-                rect: [100.0, 100.0, 200.0, 150.0],
-            }
-        ];
+        let new_fields = vec![NewFormField {
+            name: "TestField".to_string(),
+            field_type: "Tx".to_string(),
+            page: 1,
+            rect: [100.0, 100.0, 200.0, 150.0],
+        }];
 
         let result = create_form_fields(
             input_path.to_str().unwrap(),
             new_fields,
-            output_path.to_str().unwrap()
+            output_path.to_str().unwrap(),
         );
 
         assert!(result.is_ok());

@@ -26,11 +26,12 @@ pub fn get_annotations(path: &str) -> Result<Vec<PdfAnnotation>, String> {
                                 "Unknown".to_string()
                             };
 
-                            let contents = if let Ok(Object::String(bytes, _)) = annot.get(b"Contents") {
-                                Some(String::from_utf8_lossy(bytes).to_string())
-                            } else {
-                                None
-                            };
+                            let contents =
+                                if let Ok(Object::String(bytes, _)) = annot.get(b"Contents") {
+                                    Some(String::from_utf8_lossy(bytes).to_string())
+                                } else {
+                                    None
+                                };
 
                             let rect = if let Ok(Object::Array(r)) = annot.get(b"Rect") {
                                 if r.len() == 4 {

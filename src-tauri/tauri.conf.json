@@ -10,7 +10,7 @@
   "identifier": "com.pinnacle.app",
   "app": {
     "security": {
-      "csp": null
+      "csp": "default-src 'self' customprotocol: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost http://localhost:11434 http://127.0.0.1:11434 https: blob:; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; worker-src 'self' blob:;"
     },
     "windows": [
       {
@@ -24,7 +24,7 @@
         "title": "Pinnacle"
       }
     ],
-    "withGlobalTauri": true
+    "withGlobalTauri": false
   },
   "bundle": {
     "active": true,
@@ -35,6 +35,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/tessdata/*"
     ],
     "targets": "all"
   },
@@ -57,6 +60,15 @@
         "app:ipc:shell_open",
         "app:ipc:reveal_in_folder",
         "app:ipc:read_file_bytes",
+        "app:ipc:images_to_pdf",
+        "app:ipc:office_to_pdf",
+        "app:ipc:pdf_to_layout_json",
+        "app:ipc:get_file_hash",
+        "app:ipc:delete_file",
+        "app:ipc:add_ink_annotation",
+        "app:ipc:flatten_annotations",
+        "app:ipc:update_annotation_contents",
+        "app:ipc:delete_annotation",
         "plugin:dialog:open",
         "plugin:dialog:save",
         "plugin:os:type",

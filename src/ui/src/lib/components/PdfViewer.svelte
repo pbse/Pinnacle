@@ -104,6 +104,156 @@
   let strokes = $state<[number, number][][]>([]);
   let currentStroke = $state<[number, number][]>([]);
 
+  // Draggable Signature Stamp State (PDF Coordinate System)
+  let stampPdfX = $state(100);
+  let stampPdfY = $state(200);
+  let stampPdfW = $state(100);
+  let stampPdfH = $state(60);
+
+  let isDraggingStamp = $state(false);
+  let dragStartMouseX = 0;
+  let dragStartMouseY = 0;
+  let dragStartStampPdfX = 0;
+  let dragStartStampPdfY = 0;
+
+  let isResizingStamp = $state(false);
+  let resizeStartMouseX = 0;
+  let resizeStartStampPdfW = 0;
+
+  // Reactively calculate viewport coordinates for drawing the overlay
+  let stampX = $derived.by(() => {
+    if (!viewport) return 100;
+    const [vx] = viewport.convertToViewportPoint(stampPdfX, stampPdfY);
+    return vx;
+  });
+  let stampY = $derived.by(() => {
+    if (!viewport) return 100;
+    const [, vy] = viewport.convertToViewportPoint(stampPdfX, stampPdfY);
+    return vy;
+  });
+  let stampW = $derived(stampPdfW * scale);
+  let stampH = $derived(stampPdfH * scale);
+
+  $effect(() => {
+    if (pdfState.activeStamp && viewport) {
+      stampPdfW = 120; // Default Standard Width in PDF Points (approx 1.6 inches)
+      stampPdfH = 120 / pdfState.activeStamp.aspectRatio;
+      
+      // Center the stamp on the page bounds
+      const [pageWidthPdf, pageHeightPdf] = viewport.viewBox.slice(2);
+      stampPdfX = (pageWidthPdf - stampPdfW) / 2;
+      stampPdfY = (pageHeightPdf + stampPdfH) / 2;
+    }
+  });
+
+  function handleStampMouseDown(e: MouseEvent | TouchEvent) {
+    if ("button" in e && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    isDraggingStamp = true;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    dragStartMouseX = clientX;
+    dragStartMouseY = clientY;
+    dragStartStampPdfX = stampPdfX;
+    dragStartStampPdfY = stampPdfY;
+  }
+
+  function handleResizeMouseDown(e: MouseEvent | TouchEvent) {
+    if ("button" in e && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    isResizingStamp = true;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    resizeStartMouseX = clientX;
+    resizeStartStampPdfW = stampPdfW;
+  }
+
+  function handleGlobalMouseMove(e: MouseEvent | TouchEvent) {
+    if (!viewport) return;
+    
+    if (isDraggingStamp) {
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+      const dx = clientX - dragStartMouseX;
+      const dy = clientY - dragStartMouseY;
+      
+      // Translate viewport delta pixels to PDF points:
+      const dPdfX = dx / scale;
+      const dPdfY = -dy / scale; // inverted Y
+      
+      const [pageWidthPdf, pageHeightPdf] = viewport.viewBox.slice(2);
+      // Clamp within page bounds
+      stampPdfX = Math.max(0, Math.min(pageWidthPdf - stampPdfW, dragStartStampPdfX + dPdfX));
+      stampPdfY = Math.max(stampPdfH, Math.min(pageHeightPdf, dragStartStampPdfY + dPdfY));
+    } else if (isResizingStamp) {
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const dx = clientX - resizeStartMouseX;
+      
+      // Translate viewport width delta pixels to PDF points:
+      const dPdfW = dx / scale;
+      const newPdfW = Math.max(20, resizeStartStampPdfW + dPdfW);
+      
+      if (pdfState.activeStamp) {
+        stampPdfW = newPdfW;
+        stampPdfH = newPdfW / pdfState.activeStamp.aspectRatio;
+        
+        // Also clamp stampPdfY if height expands beyond top page limit
+        const [, pageHeightPdf] = viewport.viewBox.slice(2);
+        if (stampPdfY < stampPdfH) {
+          stampPdfY = stampPdfH;
+        }
+      }
+    }
+  }
+
+  function handleGlobalMouseUp() {
+    isDraggingStamp = false;
+    isResizingStamp = false;
+  }
+
+  function cancelStamp() {
+    pdfState.activeStamp = null;
+  }
+
+  function placeStamp() {
+    if (!pdfState.activeStamp || !viewport) return;
+    
+    // Bounds in PDF points
+    const px1 = stampPdfX;
+    const py1 = stampPdfY;
+    const px2 = stampPdfX + stampPdfW;
+    const py2 = stampPdfY - stampPdfH;
+    
+    // Map normalized strokes [0..1] directly to absolute PDF coordinates
+    const mappedStrokes = pdfState.activeStamp.strokes.map(stroke => 
+      stroke.map(([nx, ny]) => {
+        const pdfX = px1 + nx * stampPdfW;
+        const pdfY = py1 - ny * stampPdfH;
+        return [parseFloat(pdfX.toFixed(2)), parseFloat(pdfY.toFixed(2))] as [number, number];
+      })
+    );
+
+    const change = {
+      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+      target: "signature" as const,
+      page: pageNumber,
+      rect: [
+        parseFloat(px1.toFixed(2)),
+        parseFloat(py2.toFixed(2)),
+        parseFloat(px2.toFixed(2)),
+        parseFloat(py1.toFixed(2))
+      ],
+      strokes: mappedStrokes,
+      type: "ink",
+      color: pdfState.signatureColor,
+      width: pdfState.signatureWidth || 2
+    };
+
+    pdfState.addPendingChange(change);
+    appState.showStatus("Signature placed! Click 'Apply All' in the sidebar when done.", false);
+  }
+
   let lastLoadedPath = "";
   let lastRenderedPage = -1;
   let currentRenderTask: any = null;
@@ -515,6 +665,13 @@
   onDestroy(async () => { if (pdfDoc) try { await pdfDoc.destroy(); } catch (e) {} });
 </script>
 
+<svelte:window 
+  onmousemove={handleGlobalMouseMove} 
+  onmouseup={handleGlobalMouseUp}
+  ontouchmove={handleGlobalMouseMove}
+  ontouchend={handleGlobalMouseUp}
+/>
+
 {#snippet renderOutlineItem(item: any, depth: number)}
   <div class="space-y-1">
     <button 
@@ -741,6 +898,18 @@
     {/if}
 
     <div class="relative flex-1 p-8 overflow-auto flex justify-center items-start transition-colors duration-300 bg-slate-100 dark:bg-slate-900/40">
+      <!-- Floating Instruction Banner -->
+      {#if mode !== 'view' || pdfState.activeStamp}
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-[40] flex items-center gap-3 px-4 py-2 bg-slate-900/90 dark:bg-white/95 text-white dark:text-slate-950 rounded-lg shadow-xl border border-slate-950 dark:border-white font-bold text-xs uppercase tracking-wider backdrop-blur-md animate-in slide-in-from-top-4 duration-300">
+          {#if pdfState.activeStamp}
+            <span>✍️ Place Signature: Drag and resize on the page, then click Place</span>
+          {:else if mode === 'rect'}
+            <span>🎯 Selection Mode: Click and drag to select a region</span>
+          {:else if mode === 'points'}
+            <span>✏️ Drawing Mode: Draw directly on the document</span>
+          {/if}
+        </div>
+      {/if}
       <!-- Search Minimap -->
       {#if searchHighlights.length > 0}
         <div class="absolute right-2 top-8 bottom-8 w-1.5 bg-slate-200/50 dark:bg-slate-800/50 rounded-full z-30 pointer-events-none overflow-hidden">
@@ -786,6 +955,59 @@
                 {/if}
               </span>
             {/each}
+          </div>
+        {/if}
+
+        <!-- Render Active Signature Stamp -->
+        {#if pdfState.activeStamp && viewport}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div 
+            class="absolute select-none group/stamp border-2 border-dashed border-blue-600 bg-blue-50/10 cursor-move z-30"
+            style="left: {stampX}px; top: {stampY}px; width: {stampW}px; height: {stampH}px;"
+            onmousedown={handleStampMouseDown}
+            ontouchstart={handleStampMouseDown}
+          >
+            <!-- SVG Preview of strokes inside the box -->
+            <svg class="w-full h-full pointer-events-none" viewBox="0 0 1 1" preserveAspectRatio="none">
+              {#each pdfState.activeStamp.strokes as stroke}
+                <polyline 
+                  points={stroke.map(p => `${p[0]},${p[1]}`).join(' ')} 
+                  fill="none" 
+                  stroke={pdfState.signatureColor} 
+                  stroke-width="0.02" 
+                  stroke-linecap="round" 
+                  stroke-linejoin="round" 
+                />
+              {/each}
+            </svg>
+
+            <!-- Resize handle (Neubrutalist style) in bottom-right corner -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div 
+              class="absolute right-0 bottom-0 w-4 h-4 bg-slate-900 border border-white cursor-se-resize flex items-center justify-center translate-x-1 translate-y-1 z-40 active:scale-95"
+              onmousedown={handleResizeMouseDown}
+              ontouchstart={handleResizeMouseDown}
+            >
+              <div class="w-1.5 h-1.5 border-r border-b border-white"></div>
+            </div>
+
+            <!-- Floating Stamp Action Toolbar -->
+            <div class="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-900 text-white border-2 border-slate-950 dark:border-white px-2 py-1 flex items-center gap-1 shadow-lg z-40 rounded-none animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <button 
+                onclick={placeStamp} 
+                class="px-2 py-1 text-[10px] font-black uppercase hover:bg-slate-800 flex items-center gap-1"
+              >
+                ✅ Place
+              </button>
+              <div class="w-[1px] h-4 bg-slate-700"></div>
+              <button 
+                onclick={cancelStamp} 
+                class="px-2 py-1 text-[10px] font-black uppercase hover:bg-slate-800 text-red-400 flex items-center gap-1"
+              >
+                ❌ Cancel
+              </button>
+            </div>
           </div>
         {/if}
       </div>
@@ -962,6 +1184,87 @@
             <polyline points={stroke.map((pt: [number, number]) => { const [cx, cy] = viewport.convertToViewportPoint(pt[0], pt[1]); return `${cx},${cy}`; }).join(' ')} fill="none" stroke={previewColor} stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
           {/each}
         {/if}
+        <!-- Render Pending Changes Overlay -->
+        {#each pdfState.pendingChanges.filter(c => c.page === pageNumber) as change}
+          {#if change.target === 'annotate' && change.rect && change.type !== 'ink'}
+            {@const [vx1, vy1] = viewport.convertToViewportPoint(change.rect[0], change.rect[1])}
+            {@const [vx2, vy2] = viewport.convertToViewportPoint(change.rect[2], change.rect[3])}
+            {#if change.type === 'highlight'}
+              <rect 
+                x={Math.min(vx1, vx2)} 
+                y={Math.min(vy1, vy2)} 
+                width={Math.abs(vx2 - vx1)} 
+                height={Math.abs(vy2 - vy1)} 
+                fill={change.color} 
+                fill-opacity="0.3" 
+              />
+            {:else if change.type === 'underline'}
+              <line 
+                x1={vx1} 
+                y1={vy2} 
+                x2={vx2} 
+                y2={vy2} 
+                stroke={change.color} 
+                stroke-width="2" 
+              />
+            {:else if change.type === 'strikeout'}
+              <line 
+                x1={vx1} 
+                y1={(vy1 + vy2) / 2} 
+                x2={vx2} 
+                y2={(vy1 + vy2) / 2} 
+                stroke={change.color} 
+                stroke-width="2" 
+              />
+            {:else if change.type === 'square'}
+              <rect 
+                x={Math.min(vx1, vx2)} 
+                y={Math.min(vy1, vy2)} 
+                width={Math.abs(vx2 - vx1)} 
+                height={Math.abs(vy2 - vy1)} 
+                fill="none" 
+                stroke={change.color} 
+                stroke-width="2" 
+              />
+            {:else if change.type === 'circle'}
+              <ellipse 
+                cx={(vx1 + vx2) / 2} 
+                cy={(vy1 + vy2) / 2} 
+                rx={Math.abs(vx2 - vx1) / 2} 
+                ry={Math.abs(vy2 - vy1) / 2} 
+                fill="none" 
+                stroke={change.color} 
+                stroke-width="2" 
+              />
+            {:else}
+              <rect 
+                x={Math.min(vx1, vx2)} 
+                y={Math.min(vy1, vy2)} 
+                width={Math.abs(vx2 - vx1)} 
+                height={Math.abs(vy2 - vy1)} 
+                fill={change.color} 
+                fill-opacity="0.15" 
+                stroke={change.color} 
+                stroke-width="1.5" 
+                stroke-dasharray="3,3" 
+              />
+            {/if}
+          {:else if change.strokes}
+            {#each change.strokes as stroke}
+              <polyline 
+                points={stroke.map(pt => { 
+                  const [cx, cy] = viewport.convertToViewportPoint(pt[0], pt[1]); 
+                  return `${cx},${cy}`; 
+                }).join(' ')} 
+                fill="none" 
+                stroke={change.color} 
+                stroke-width={change.width || 2} 
+                stroke-linecap="round" 
+                stroke-linejoin="round" 
+              />
+            {/each}
+          {/if}
+        {/each}
       </svg>
     {/if}
   </div>

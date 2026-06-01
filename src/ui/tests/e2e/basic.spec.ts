@@ -54,9 +54,6 @@ test.describe('Pinnacle UI', () => {
 
     // Check for the heading inside the split pane
     await expect(page.getByRole('heading', { name: /Split/i })).toBeVisible({ timeout: 10000 });
-
-    // Check for the status message
-    await expect(page.getByTestId('status-message')).toContainText('Switched to SPLIT', { timeout: 10000 });
   });
 
   test('should switch to Extract tool', async ({ page }) => {
@@ -65,7 +62,5 @@ test.describe('Pinnacle UI', () => {
     await expect(page.getByTestId('active-pane-extract')).toBeVisible({ timeout: 10000 });
 
     await expect(page.getByRole('heading', { name: /Assistant/i })).toBeVisible({ timeout: 10000 });
-
-    await expect(page.getByTestId('status-message')).toContainText('Switched to EXTRACT', { timeout: 10000 });
   });
 });

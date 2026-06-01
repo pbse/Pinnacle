@@ -10,6 +10,7 @@
   import { pdfState } from "$lib/state/pdfState.svelte";
   import { chatState } from "$lib/state/chatState.svelte";
   import { historyState } from "$lib/state/historyState.svelte";
+  import { db } from "$lib/state/db";
 
   // Components
   import SidebarNav from "$lib/components/SidebarNav.svelte";
@@ -34,11 +35,14 @@
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import ShortcutsModal from "$lib/components/ShortcutsModal.svelte";
   import OnboardingTour from "$lib/components/OnboardingTour.svelte";
+  import SignaturePadModal from "$lib/components/SignaturePadModal.svelte";
 
   let aiSummary = $state("");
   let aiInsights = $state<{ dates: string[], amounts: string[], orgs: string[] }>({ dates: [], amounts: [], orgs: [] });
   let isShortcutsOpen = $state(false);
   let isZenMode = $state(false);
+  let isDragOver = $state(false);
+  let documentIntelRequest = 0;
   
   // Comparison Side-by-Side State
   let compPage1 = $state(1);
@@ -152,26 +156,91 @@
     }
   }
 
+  function normalizeInsights(insights: any) {
+    return {
+      dates: Array.isArray(insights?.dates) ? insights.dates : [],
+      amounts: Array.isArray(insights?.amounts) ? insights.amounts : [],
+      orgs: Array.isArray(insights?.orgs) ? insights.orgs : []
+    };
+  }
+
+  function isCurrentIntelRequest(path: string, requestId: number) {
+    return requestId === documentIntelRequest && pdfState.viewerFilePath === path;
+  }
+
+  const loaderStageOrder = ["converting", "scanning", "indexing", "complete"];
+  const loaderSteps = [
+    { id: "converting", label: "Converting" },
+    { id: "scanning", label: "Scanning Layout" },
+    { id: "indexing", label: "Indexing" }
+  ];
+
+  function loaderStepClass(step: string, current = "") {
+    if (current === "error") return "border-red-500 bg-red-500/10 text-red-600";
+    if (current === step) return "border-blue-600 bg-blue-500/10 text-blue-700 dark:text-blue-300 animate-pulse shadow-[3px_3px_0px_0px_rgba(37,99,235,0.45)]";
+
+    const stepIndex = loaderStageOrder.indexOf(step);
+    const currentIndex = loaderStageOrder.indexOf(current);
+    if (currentIndex > stepIndex) return "border-emerald-500 bg-emerald-500/10 text-emerald-600";
+
+    return "border-slate-300 dark:border-slate-700 text-slate-400 bg-white/50 dark:bg-slate-950/30";
+  }
+
+  async function hydrateDocumentIntel(path: string, requestId: number) {
+    chatState.loadHistory(path);
+
+    const doc = await db.documents.where('path').equals(path).first();
+    if (!isCurrentIntelRequest(path, requestId)) return;
+
+    aiSummary = doc?.summary || "";
+
+    const cachedEntities = await db.entities.where('docPaths').equals(path).toArray();
+    if (!isCurrentIntelRequest(path, requestId)) return;
+
+    if (cachedEntities.length > 0) {
+      aiInsights = {
+        dates: cachedEntities.filter(entity => entity.type === 'date').map(entity => entity.name).slice(0, 3),
+        amounts: [],
+        orgs: cachedEntities.filter(entity => entity.type === 'org').map(entity => entity.name).slice(0, 3)
+      };
+    } else {
+      aiInsights = { dates: [], amounts: [], orgs: [] };
+    }
+
+    if (!doc?.summary) {
+      try {
+        const summary = await chatState.nameDocument(path);
+        if (!isCurrentIntelRequest(path, requestId)) return;
+        aiSummary = summary;
+        const latest = await db.documents.where('path').equals(path).first();
+        if (latest?.id) await db.documents.update(latest.id, { summary });
+        await historyState.loadHistory();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    if (cachedEntities.length === 0) {
+      try {
+        const insights = normalizeInsights(await chatState.getDocumentInsights(path));
+        if (!isCurrentIntelRequest(path, requestId)) return;
+        aiInsights = insights;
+        await historyState.indexEntities(path, insights);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }
+
   $effect(() => {
-    if (pdfState.viewerFilePath) {
+    const activePath = pdfState.viewerFilePath;
+    const requestId = ++documentIntelRequest;
+
+    if (activePath) {
       if (pdfState.activeTool === 'peek' || pdfState.activeTool === 'library') {
         pdfState.activeTool = 'insights';
       }
-      chatState.nameDocument(pdfState.viewerFilePath)
-        .then(s => aiSummary = s)
-        .catch(e => console.error(e));
-      chatState.getDocumentInsights(pdfState.viewerFilePath)
-        .then(i => {
-          const safeInsights = {
-            dates: Array.isArray(i?.dates) ? i.dates : [],
-            amounts: Array.isArray(i?.amounts) ? i.amounts : [],
-            orgs: Array.isArray(i?.orgs) ? i.orgs : []
-          };
-          aiInsights = safeInsights;
-          historyState.indexEntities(pdfState.viewerFilePath, safeInsights);
-        })
-        .catch(e => console.error(e));
-      chatState.loadHistory(pdfState.viewerFilePath);
+      hydrateDocumentIntel(activePath, requestId);
     } else {
       aiSummary = "";
       aiInsights = { dates: [], amounts: [], orgs: [] };
@@ -209,7 +278,14 @@
     
     let unlisten: (() => void) | undefined;
     getCurrentWebviewWindow().onDragDropEvent((event) => {
-      if (event.payload.type === "drop") pdfState.handleDroppedFiles(event.payload.paths);
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        isDragOver = true;
+      } else if (event.payload.type === "leave") {
+        isDragOver = false;
+      } else if (event.payload.type === "drop") {
+        isDragOver = false;
+        pdfState.handleDroppedFiles(event.payload.paths);
+      }
     }).then(fn => { unlisten = fn; });
 
     let unlistenPdf: any;
@@ -483,10 +559,61 @@
   </main>
 </div>
 
+{#if isDragOver || pdfState.activeLoader}
+  {@const loader = pdfState.activeLoader}
+  <div class="fixed inset-0 z-[700] flex items-center justify-center bg-slate-950/35 backdrop-blur-sm p-6" in:fade={{ duration: 120 }}>
+    <div
+      class="w-full max-w-xl bg-white/85 dark:bg-slate-950/85 backdrop-blur-2xl border-4 border-slate-950 dark:border-white rounded-[8px] shadow-[14px_14px_0px_0px_rgba(15,23,42,1)] dark:shadow-[14px_14px_0px_0px_rgba(255,255,255,0.9)] p-6"
+      in:scale={{ start: 0.97, duration: 140 }}
+    >
+      <div class="flex items-start justify-between gap-4 mb-5">
+        <div class="min-w-0">
+          <div class="text-[10px] font-black uppercase tracking-[0.24em] text-blue-600 dark:text-blue-300">
+            {loader ? "Importing Document" : "Drop to Import"}
+          </div>
+          <div class="mt-2 text-sm font-black text-slate-950 dark:text-white truncate">
+            {loader?.filename || "PDF, DOCX, XLSX, PNG, JPG"}
+          </div>
+          <div class="mt-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 truncate">
+            {loader?.detail || "Pinnacle will convert, scan layout, and index locally."}
+          </div>
+        </div>
+        <div class="h-12 w-12 shrink-0 rounded-[8px] border-2 border-slate-950 dark:border-white bg-amber-300 text-slate-950 shadow-[5px_5px_0px_0px_rgba(15,23,42,1)] flex items-center justify-center text-xl">
+          ⬇
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2 mb-5">
+        {#each loaderSteps as step}
+          <div class="rounded-[6px] border-2 px-2 py-2 text-center text-[8px] font-black uppercase tracking-wider transition-all {loaderStepClass(step.id, loader?.stage)}">
+            {step.label}
+          </div>
+        {/each}
+      </div>
+
+      <div class="h-3 rounded-full border-2 border-slate-950 dark:border-white bg-white dark:bg-slate-900 overflow-hidden">
+        <div
+          class="h-full transition-all duration-300 {loader?.stage === 'error' ? 'bg-red-500' : 'bg-blue-600'}"
+          style="width: {loader?.progress || (isDragOver ? 6 : 0)}%"
+        ></div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
+        <span>{loader?.stage || "Ready"}</span>
+        <span>{loader?.progress || 0}%</span>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <CommandPalette />
 <ShortcutsModal isOpen={isShortcutsOpen} onclose={() => isShortcutsOpen = false} />
 <OnboardingTour />
 <StatusDisplay />
+
+{#if pdfState.showSignPad}
+  <SignaturePadModal />
+{/if}
 
 {#if tabContextMenu}
   <!-- svelte-ignore a11y_click_events_have_key_events -->

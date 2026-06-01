@@ -52,10 +52,14 @@ test.describe('Pinnacle Annotations', () => {
     await page.selectOption('select#annotate-type', 'square');
 
     // Apply annotation
-    await page.click('button:has-text("Apply Annotation")');
+    await page.click('button:has-text("Queue Annotation")');
 
     // Check for success status
-    await expect(page.getByTestId('status-message')).toContainText('Annotation added successfully');
+    await expect(page.getByTestId('status-message')).toContainText('Annotation added to queue');
+
+    // Commit all changes
+    await page.click('button:has-text("Apply All & Save")');
+    await expect(page.getByTestId('status-message')).toContainText('Successfully applied all changes');
   });
 
   test('should toggle drawing mode and switch to ink annotation', async ({ page }) => {
@@ -71,7 +75,7 @@ test.describe('Pinnacle Annotations', () => {
     await expect(page.locator('select#annotate-type')).toHaveValue('ink');
 
     // Applying without strokes should show error (handled by Svelte state)
-    await page.click('button:has-text("Apply Annotation")');
-    await expect(page.getByTestId('status-message')).toContainText('No drawings to apply');
+    await page.click('button:has-text("Queue Annotation")');
+    await expect(page.getByTestId('status-message')).toContainText('Please draw on the document first');
   });
 });

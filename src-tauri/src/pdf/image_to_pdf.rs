@@ -1,5 +1,5 @@
-use lopdf::{dictionary, Document, Object, Stream};
 use image::GenericImageView;
+use lopdf::{dictionary, Document, Object, Stream};
 use std::path::Path;
 
 #[tauri::command]
@@ -10,25 +10,34 @@ pub fn images_to_pdf(image_paths: Vec<String>, output_path: &str) -> Result<(), 
 
     for path_str in image_paths {
         let path = Path::new(&path_str);
-        if !path.exists() { continue; }
+        if !path.exists() {
+            continue;
+        }
 
-        let img = image::open(path).map_err(|e| format!("Failed to open image {}: {}", path_str, e))?;
+        let img =
+            image::open(path).map_err(|e| format!("Failed to open image {}: {}", path_str, e))?;
         let (width, height) = img.dimensions();
 
         // Convert image to JPEG for small PDF size
         let mut jpeg_data = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut jpeg_data), image::ImageFormat::Jpeg)
-            .map_err(|e| format!("Failed to process image: {}", e))?;
+        img.write_to(
+            &mut std::io::Cursor::new(&mut jpeg_data),
+            image::ImageFormat::Jpeg,
+        )
+        .map_err(|e| format!("Failed to process image: {}", e))?;
 
-        let stream = Stream::new(dictionary! {
-            "Type" => "XObject",
-            "Subtype" => "Image",
-            "Width" => width as i64,
-            "Height" => height as i64,
-            "ColorSpace" => "DeviceRGB",
-            "BitsPerComponent" => 8,
-            "Filter" => "DCTDecode",
-        }, jpeg_data);
+        let stream = Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => width as i64,
+                "Height" => height as i64,
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+                "Filter" => "DCTDecode",
+            },
+            jpeg_data,
+        );
 
         let image_id = doc.add_object(stream);
 
@@ -50,11 +59,14 @@ pub fn images_to_pdf(image_paths: Vec<String>, output_path: &str) -> Result<(), 
     }
 
     let count = kids.len() as i64;
-    doc.objects.insert(pages_id, Object::Dictionary(dictionary! {
-        "Type" => "Pages",
-        "Kids" => kids,
-        "Count" => Object::Integer(count),
-    }));
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => Object::Integer(count),
+        }),
+    );
 
     let root_id = doc.add_object(dictionary! {
         "Type" => "Catalog",
@@ -62,7 +74,8 @@ pub fn images_to_pdf(image_paths: Vec<String>, output_path: &str) -> Result<(), 
     });
 
     doc.trailer.set("Root", root_id);
-    doc.save(output_path).map_err(|e| format!("Failed to save PDF: {}", e))?;
+    doc.save(output_path)
+        .map_err(|e| format!("Failed to save PDF: {}", e))?;
 
     Ok(())
 }
@@ -80,7 +93,7 @@ mod tests {
         let result = images_to_pdf(vec![], output_path.to_str().unwrap());
         assert!(result.is_ok());
         // Even with no images, it creates a PDF with no pages (or at least doesn't crash)
-        
+
         teardown_unique_paths(&test_dir, &output_dir);
     }
 }

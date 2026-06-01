@@ -56,16 +56,25 @@ pub fn add_annotation(
         }
     }
 
-    let mut doc = Document::load(path)
-        .map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
+    let mut doc =
+        Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
 
     let pages = doc.get_pages();
-    let page_id = *pages
-        .get(&page)
-        .ok_or_else(|| format!("Page number {} not found in document ({} pages).", page, pages.len()))?;
+    let page_id = *pages.get(&page).ok_or_else(|| {
+        format!(
+            "Page number {} not found in document ({} pages).",
+            page,
+            pages.len()
+        )
+    })?;
 
     let rect = normalize_rect(rect);
-    let rect_obj = Object::Array(vec![rect[0].into(), rect[1].into(), rect[2].into(), rect[3].into()]);
+    let rect_obj = Object::Array(vec![
+        rect[0].into(),
+        rect[1].into(),
+        rect[2].into(),
+        rect[3].into(),
+    ]);
 
     let subtype = kind.to_lowercase();
     let annot_dict = match subtype.as_str() {
@@ -152,16 +161,16 @@ pub fn add_annotation(
             };
             if let Some(text) = contents.clone() {
                 d.set("Contents", Object::string_literal(text.clone()));
-                
+
                 // Generate Appearance Stream
                 let w = rect[2] - rect[0];
                 let h = rect[3] - rect[1];
-                
+
                 let mut ap_content = String::new();
                 ap_content.push_str("q\n");
                 ap_content.push_str("0 0 0 rg\n"); // Black text
                 ap_content.push_str("BT\n/Helv 10 Tf\n"); // Font Helvetica 10pt
-                
+
                 // Basic text wrapping / positioning
                 let mut current_y = h - 12.0;
                 for line in text.lines() {
@@ -235,12 +244,12 @@ pub fn add_annotation(
     let annot_id = doc.add_object(Object::Dictionary(annot_dict));
 
     {
-        let page_obj = doc.get_object_mut(page_id).map_err(|e| {
-            format!("Failed to fetch page object {:?}: {}", page_id, e)
-        })?;
-        let page_dict = page_obj.as_dict_mut().map_err(|_| {
-            "Page object is not a dictionary".to_string()
-        })?;
+        let page_obj = doc
+            .get_object_mut(page_id)
+            .map_err(|e| format!("Failed to fetch page object {:?}: {}", page_id, e))?;
+        let page_dict = page_obj
+            .as_dict_mut()
+            .map_err(|_| "Page object is not a dictionary".to_string())?;
 
         match page_dict.get_mut(b"Annots") {
             Ok(annots_obj) => {
@@ -298,7 +307,7 @@ pub fn add_ink_annotation(
     }
 
     let rect = Object::Array(vec![min_x.into(), min_y.into(), max_x.into(), max_y.into()]);
-    
+
     let annot_dict = dictionary! {
         "Type" => "Annot",
         "Subtype" => "Ink",
@@ -328,9 +337,13 @@ pub fn add_ink_annotation(
 }
 
 #[tauri::command]
-pub fn delete_annotation(path: &str, annot_id: (u32, u16), output_path: &str) -> Result<(), String> {
+pub fn delete_annotation(
+    path: &str,
+    annot_id: (u32, u16),
+    output_path: &str,
+) -> Result<(), String> {
     let mut doc = Document::load(path).map_err(|e| e.to_string())?;
-    
+
     // 1. Remove from all page Annots arrays
     let page_ids: Vec<_> = doc.get_pages().values().cloned().collect();
     for page_id in page_ids {
@@ -347,25 +360,30 @@ pub fn delete_annotation(path: &str, annot_id: (u32, u16), output_path: &str) ->
             }
         }
     }
-    
+
     // 2. Remove the object itself
     doc.objects.remove(&annot_id);
-    
+
     doc.save(output_path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn update_annotation_contents(path: &str, annot_id: (u32, u16), new_contents: String, output_path: &str) -> Result<(), String> {
+pub fn update_annotation_contents(
+    path: &str,
+    annot_id: (u32, u16),
+    new_contents: String,
+    output_path: &str,
+) -> Result<(), String> {
     let mut doc = Document::load(path).map_err(|e| e.to_string())?;
-    
+
     if let Ok(Object::Dictionary(mut annot)) = doc.get_object_mut(annot_id).cloned() {
         annot.set("Contents", Object::string_literal(new_contents));
         doc.objects.insert(annot_id, Object::Dictionary(annot));
     } else {
         return Err("Annotation not found or not a dictionary".to_string());
     }
-    
+
     doc.save(output_path).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -442,7 +460,7 @@ mod tests {
 
         let gestures = vec![
             vec![[10.0, 10.0], [20.0, 20.0], [30.0, 10.0]],
-            vec![[50.0, 50.0], [60.0, 60.0]]
+            vec![[50.0, 50.0], [60.0, 60.0]],
         ];
 
         let result = add_ink_annotation(

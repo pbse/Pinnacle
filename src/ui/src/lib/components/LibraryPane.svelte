@@ -182,6 +182,65 @@
 
   let searchQuery = $state("");
   let duplicateGroups = $state<any[][]>([]);
+  let searchLayouts = $state<Record<string, any>>({});
+  const loadingLayoutPaths = new Set<string>();
+  
+  $effect(() => {
+    if (historyState.searchResults.length > 0) {
+      historyState.searchResults.forEach(async (res) => {
+        if (searchLayouts[res.path] || loadingLayoutPaths.has(res.path)) return;
+        loadingLayoutPaths.add(res.path);
+        const doc = await db.documents.where('path').equals(res.path).first();
+        if (doc?.layoutJson) {
+          try {
+            searchLayouts = { ...searchLayouts, [res.path]: JSON.parse(doc.layoutJson) };
+          } catch(e) {}
+          loadingLayoutPaths.delete(res.path);
+          return;
+        }
+
+        try {
+          const layoutJson = await invoke<string>("pdf_to_layout_json", { path: res.path });
+          const layout = JSON.parse(layoutJson);
+          searchLayouts = { ...searchLayouts, [res.path]: layout };
+          if (doc?.id) await db.documents.update(doc.id, { layoutJson });
+        } catch (e) {
+          console.error("Failed to build search heatmap:", e);
+        } finally {
+          loadingLayoutPaths.delete(res.path);
+        }
+      });
+    }
+  });
+
+  function normalizeSearchText(value: string | undefined | null): string {
+    return (value || "").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function getPageText(pageData: any): string {
+    return pageData?.text || "";
+  }
+
+  function getPageItems(pageData: any): any[] {
+    return Array.isArray(pageData?.text_items) ? pageData.text_items : [];
+  }
+
+  function getItemText(item: any): string {
+    return item?.text || item?.str || "";
+  }
+
+  function getMatchingPages(resPath: string, query: string): any[] {
+    const layout = searchLayouts[resPath];
+    if (!layout || !layout.pages || !query.trim()) return [];
+    const needle = normalizeSearchText(query);
+    return layout.pages.filter((p: any) => normalizeSearchText(getPageText(p)).includes(needle));
+  }
+
+  function getMatchingItems(pageData: any, query: string): any[] {
+    const needle = normalizeSearchText(query);
+    if (!needle) return [];
+    return getPageItems(pageData).filter((item: any) => normalizeSearchText(getItemText(item)).includes(needle));
+  }
 
   async function handleSearch() {
     await historyState.searchLibrary(searchQuery);
@@ -207,6 +266,37 @@
 
     {#if libraryTab === 'collection'}
       <div class="space-y-6 flex-1 overflow-y-auto pr-1">
+        {#if pdfState.activeLoader}
+          <div 
+            class="p-4 bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl border-2 border-slate-900 dark:border-slate-100 rounded-2xl shadow-[8px_8px_0px_0px_rgba(15,23,42,1.0)] dark:shadow-[8px_8px_0px_0px_rgba(255,255,255,0.95)] transition-all animate-in zoom-in-95 duration-200"
+          >
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-[9px] font-black uppercase text-blue-600 dark:text-blue-400 tracking-wider">File Import Loader</span>
+              <span class="text-[8px] font-bold text-slate-400 uppercase">{pdfState.activeLoader.stage}</span>
+            </div>
+            <div class="text-[10px] font-bold text-slate-800 dark:text-slate-200 truncate mb-3">{pdfState.activeLoader.filename}</div>
+            
+            <div class="grid grid-cols-3 gap-2 text-center text-[7px] font-black uppercase tracking-wider mb-3">
+              <div class="py-1 px-1.5 rounded-md border transition-all {pdfState.activeLoader.stage === 'converting' ? 'border-blue-500 bg-blue-500/10 text-blue-600 animate-pulse' : ['scanning', 'indexing', 'complete'].includes(pdfState.activeLoader.stage) ? 'border-green-500 bg-green-500/10 text-green-600' : 'border-slate-200 dark:border-slate-800 text-slate-400'}">
+                1. Convert
+              </div>
+              <div class="py-1 px-1.5 rounded-md border transition-all {pdfState.activeLoader.stage === 'scanning' ? 'border-blue-500 bg-blue-500/10 text-blue-600 animate-pulse' : ['indexing', 'complete'].includes(pdfState.activeLoader.stage) ? 'border-green-500 bg-green-500/10 text-green-600' : 'border-slate-200 dark:border-slate-800 text-slate-400'}">
+                2. Scan Layout
+              </div>
+              <div class="py-1 px-1.5 rounded-md border transition-all {pdfState.activeLoader.stage === 'indexing' ? 'border-blue-500 bg-blue-500/10 text-blue-600 animate-pulse' : pdfState.activeLoader.stage === 'complete' ? 'border-green-500 bg-green-500/10 text-green-600' : 'border-slate-200 dark:border-slate-800 text-slate-400'}">
+                3. Index DB
+              </div>
+            </div>
+
+            <div class="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
+              <div 
+                class="h-full bg-blue-600 transition-all duration-300 ease-out" 
+                style="width: {pdfState.activeLoader.progress}%"
+              ></div>
+            </div>
+          </div>
+        {/if}
+
         <div class="space-y-3">
           <div class="flex items-center bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-700 shadow-inner">
             <span class="text-xs mr-2">🔍</span>
@@ -222,14 +312,66 @@
           </div>
 
           {#if historyState.searchResults.length > 0}
-            <div class="space-y-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-900/40">
-              <h4 class="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">Library Matches</h4>
+            <div class="space-y-4 p-4 bg-blue-50/50 dark:bg-blue-950/20 rounded-2xl border border-blue-100 dark:border-blue-900/40 animate-in fade-in zoom-in-95 duration-200">
+              <h4 class="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">Library Heatmap Matches</h4>
               {#each historyState.searchResults as res}
-                <div class="space-y-1">
-                  <div class="text-[10px] font-bold text-slate-700 dark:text-slate-200 truncate">{res.file}</div>
-                  {#each res.matches as match}
-                    <div class="text-[9px] text-slate-500 italic line-clamp-1">"...{match}..."</div>
-                  {/each}
+                <div class="p-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl space-y-3">
+                  <button 
+                    onclick={() => pdfState.openTab(res.path)}
+                    class="text-[10px] font-bold text-slate-700 dark:text-slate-200 truncate w-full text-left hover:text-blue-600 transition-colors uppercase tracking-tight"
+                  >
+                    📄 {res.file}
+                  </button>
+                  
+                  {#if getMatchingPages(res.path, searchQuery).length > 0}
+                    <div class="flex gap-3 overflow-x-auto py-1 no-scrollbar">
+                      {#each getMatchingPages(res.path, searchQuery) as pageData}
+                        {@const matchingItems = getMatchingItems(pageData, searchQuery)}
+                        <button 
+                          onclick={() => {
+                            pdfState.openTab(res.path);
+                            pdfState.viewerPageNumber = pageData.page;
+                            pdfState.highlightedSnippet = searchQuery;
+                          }}
+                          class="shrink-0 flex flex-col items-center gap-1 group/thumb"
+                        >
+                          <div 
+                            class="w-12 h-16 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 relative rounded shadow-sm overflow-hidden transition-all group-hover/thumb:border-blue-500 shrink-0"
+                            title="Page {pageData.page}: {getPageText(pageData).slice(0, 180)}"
+                          >
+                            <div class="absolute inset-1 flex flex-col gap-[2px] opacity-25">
+                              <div class="h-[2px] bg-slate-400 rounded-full w-full"></div>
+                              <div class="h-[2px] bg-slate-400 rounded-full w-4/5"></div>
+                              <div class="h-[2px] bg-slate-400 rounded-full w-11/12"></div>
+                              <div class="h-[2px] bg-slate-400 rounded-full w-3/4"></div>
+                            </div>
+                            
+                            {#if matchingItems.length > 0}
+                              {#each matchingItems as item}
+                                {@const x_ratio = 48 / (pageData.width || 612)}
+                                {@const y_ratio = 64 / (pageData.height || 792)}
+                                <div 
+                                  class="absolute bg-amber-500/80 rounded-[1px] animate-pulse border border-amber-600/30"
+                                  style="left: {(Number(item.x) || 0) * x_ratio}px; top: {(Number(item.y) || 0) * y_ratio}px; width: {Math.max(2, (Number(item.width) || 12) * x_ratio)}px; height: {Math.max(2, (Number(item.height) || 8) * y_ratio)}px"
+                                  title="Page {pageData.page}: {getItemText(item)}"
+                                ></div>
+                              {/each}
+                            {:else}
+                              <div 
+                                class="absolute left-1 right-1 top-1/2 h-1 -translate-y-1/2 rounded-full bg-amber-500/80 animate-pulse border border-amber-600/30"
+                                title="Match found in edited OCR text on page {pageData.page}"
+                              ></div>
+                            {/if}
+                          </div>
+                          <span class="text-[7px] font-black text-slate-400 group-hover/thumb:text-blue-500 uppercase tracking-tighter">P. {pageData.page}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {:else}
+                    {#each res.matches as match}
+                      <div class="text-[9px] text-slate-500 italic line-clamp-1">"...{match}..."</div>
+                    {/each}
+                  {/if}
                 </div>
               {/each}
             </div>

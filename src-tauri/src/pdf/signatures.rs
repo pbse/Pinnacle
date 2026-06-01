@@ -1,12 +1,12 @@
 use lopdf::{dictionary, Document, Object};
-use std::fs;
-use std::path::Path;
-use openssl::cms::{CmsContentInfo, CMSOptions};
+use openssl::cms::{CMSOptions, CmsContentInfo};
 use openssl::pkcs12::Pkcs12;
+use openssl::pkey::PKey;
 use openssl::stack::Stack;
 use openssl::x509::store::X509StoreBuilder;
 use openssl::x509::X509;
-use openssl::pkey::PKey;
+use std::fs;
+use std::path::Path;
 
 fn normalize_rect(mut rect: [f32; 4]) -> [f32; 4] {
     if rect[0] > rect[2] {
@@ -67,12 +67,21 @@ pub fn add_signature_visual(
         Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
 
     let pages = doc.get_pages();
-    let page_id = *pages
-        .get(&page)
-        .ok_or_else(|| format!("Page number {} not found in document ({} pages).", page, pages.len()))?;
+    let page_id = *pages.get(&page).ok_or_else(|| {
+        format!(
+            "Page number {} not found in document ({} pages).",
+            page,
+            pages.len()
+        )
+    })?;
 
     let rect = normalize_rect(rect);
-    let rect_obj = Object::Array(vec![rect[0].into(), rect[1].into(), rect[2].into(), rect[3].into()]);
+    let rect_obj = Object::Array(vec![
+        rect[0].into(),
+        rect[1].into(),
+        rect[2].into(),
+        rect[3].into(),
+    ]);
 
     // Build InkList (array of strokes)
     let mut ink_list = Vec::with_capacity(strokes.len());
@@ -107,15 +116,11 @@ pub fn add_signature_visual(
     let col = color.unwrap_or([0.1, 0.4, 1.0]);
     ap_stream.push_str(&format!("{:.3} {:.3} {:.3} RG\n", col[0], col[1], col[2]));
     ap_stream.push_str(&format!("{:.2} w\n", stroke_width));
-    
+
     // Process each stroke for the appearance stream
     for points in &strokes {
         if let Some(first) = points.first() {
-            ap_stream.push_str(&format!(
-                "{:.2} {:.2} m\n",
-                first[0] - x0,
-                first[1] - y0
-            ));
+            ap_stream.push_str(&format!("{:.2} {:.2} m\n", first[0] - x0, first[1] - y0));
             for p in points.iter().skip(1) {
                 ap_stream.push_str(&format!("{:.2} {:.2} l\n", p[0] - x0, p[1] - y0));
             }
@@ -135,9 +140,9 @@ pub fn add_signature_visual(
     let annot_id = doc.add_object(Object::Dictionary(annot_dict));
 
     {
-        let page_obj = doc.get_object_mut(page_id).map_err(|e| {
-            format!("Failed to fetch page object {:?}: {}", page_id, e)
-        })?;
+        let page_obj = doc
+            .get_object_mut(page_id)
+            .map_err(|e| format!("Failed to fetch page object {:?}: {}", page_id, e))?;
         let page_dict = page_obj
             .as_dict_mut()
             .map_err(|_| "Page object is not a dictionary".to_string())?;
@@ -206,8 +211,8 @@ pub fn sign_pdf_pfx(
     }
 
     // Load document and check page exists
-    let mut doc = Document::load(path)
-        .map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
+    let mut doc =
+        Document::load(path).map_err(|e| format!("Failed to load PDF '{}': {}", path, e))?;
     let pages = doc.get_pages();
     if !pages.contains_key(&page) {
         return Err(format!(
@@ -218,8 +223,8 @@ pub fn sign_pdf_pfx(
     }
 
     // Load PFX
-    let pfx_bytes = fs::read(pfx_path)
-        .map_err(|e| format!("Failed to read PFX '{}': {}", pfx_path, e))?;
+    let pfx_bytes =
+        fs::read(pfx_path).map_err(|e| format!("Failed to read PFX '{}': {}", pfx_path, e))?;
     let parsed = Pkcs12::from_der(&pfx_bytes)
         .map_err(|e| format!("Invalid PFX: {}", e))?
         .parse2(&pfx_password)
@@ -236,7 +241,12 @@ pub fn sign_pdf_pfx(
     // Build signature dictionary with placeholders
     let sig_id = doc.new_object_id();
     let widget_id = doc.new_object_id();
-    let rect_obj = Object::Array(vec![rect[0].into(), rect[1].into(), rect[2].into(), rect[3].into()]);
+    let rect_obj = Object::Array(vec![
+        rect[0].into(),
+        rect[1].into(),
+        rect[2].into(),
+        rect[3].into(),
+    ]);
 
     let mut sig_dict = dictionary! {
         "Type" => "Sig",
@@ -267,7 +277,8 @@ pub fn sign_pdf_pfx(
         "T" => Object::string_literal("Signature1"),
         "F" => 4_i64,
     };
-    doc.objects.insert(widget_id, Object::Dictionary(widget.clone()));
+    doc.objects
+        .insert(widget_id, Object::Dictionary(widget.clone()));
 
     // Attach widget to page Annots
     {
@@ -314,7 +325,12 @@ pub fn sign_pdf_pfx(
                 let mut acro = dictionary! { "Fields" => Object::Array(vec![]) };
                 acro.set("SigFlags", Object::Integer(3));
                 catalog_dict.set("AcroForm", acro);
-                catalog_dict.get_mut(b"AcroForm").unwrap().as_dict_mut().unwrap().get_mut(b"Fields")
+                catalog_dict
+                    .get_mut(b"AcroForm")
+                    .unwrap()
+                    .as_dict_mut()
+                    .unwrap()
+                    .get_mut(b"Fields")
             }
         }
         .map_err(|_| "Failed to get Fields array".to_string())?;
@@ -365,10 +381,7 @@ pub fn sign_pdf_pfx(
     let br2_start = contents_end + 1;
     let br2_len = buffer.len() - br2_start;
 
-    let new_br = format!(
-        "[{} {} {} {}]",
-        br1_start, br1_len, br2_start, br2_len
-    );
+    let new_br = format!("[{} {} {} {}]", br1_start, br1_len, br2_start, br2_len);
     // replace inside buffer
     let mut br_bytes = buffer.clone();
     let br_slice = &mut br_bytes[b_range_start..b_range_start + new_br.len()];
@@ -393,7 +406,9 @@ pub fn sign_pdf_pfx(
         CMSOptions::DETACHED | CMSOptions::BINARY,
     )
     .map_err(|e| format!("CMS sign failed: {}", e))?;
-    let signature_der = cms.to_der().map_err(|e| format!("DER encode failed: {}", e))?;
+    let signature_der = cms
+        .to_der()
+        .map_err(|e| format!("DER encode failed: {}", e))?;
     if signature_der.len() * 2 > contents_len {
         return Err(format!(
             "Signature too large for placeholder ({} > {}).",
@@ -457,7 +472,12 @@ pub fn verify_signatures(path: &str) -> Result<Vec<String>, String> {
     if nums.len() != 4 {
         return Err("Invalid ByteRange values".to_string());
     }
-    let (br1_start, br1_len, br2_start, br2_len) = (nums[0] as usize, nums[1] as usize, nums[2] as usize, nums[3] as usize);
+    let (br1_start, br1_len, br2_start, br2_len) = (
+        nums[0] as usize,
+        nums[1] as usize,
+        nums[2] as usize,
+        nums[3] as usize,
+    );
 
     // Extract signed data
     let mut signed_data = Vec::with_capacity(br1_len + br2_len);
@@ -465,9 +485,12 @@ pub fn verify_signatures(path: &str) -> Result<Vec<String>, String> {
     signed_data.extend_from_slice(&pdf_bytes[br2_start..br2_start + br2_len]);
 
     // Extract signature hex
-    let sig_hex = std::str::from_utf8(&pdf_bytes[contents_start..contents_end]).map_err(|e| e.to_string())?;
-    let sig_bytes = hex::decode(sig_hex.trim_end_matches('0')).map_err(|e| format!("Invalid hex signature: {}", e))?;
-    let mut cms = CmsContentInfo::from_der(&sig_bytes).map_err(|e| format!("CMS parse failed: {}", e))?;
+    let sig_hex =
+        std::str::from_utf8(&pdf_bytes[contents_start..contents_end]).map_err(|e| e.to_string())?;
+    let sig_bytes = hex::decode(sig_hex.trim_end_matches('0'))
+        .map_err(|e| format!("Invalid hex signature: {}", e))?;
+    let mut cms =
+        CmsContentInfo::from_der(&sig_bytes).map_err(|e| format!("CMS parse failed: {}", e))?;
 
     let mut store_builder = X509StoreBuilder::new().map_err(|e| e.to_string())?;
     store_builder.set_default_paths().ok(); // best-effort system roots
@@ -482,7 +505,9 @@ pub fn verify_signatures(path: &str) -> Result<Vec<String>, String> {
     )
     .map_err(|e| format!("Signature verification failed: {}", e))?;
 
-    Ok(vec!["Signature verified (trust depends on system roots)".to_string()])
+    Ok(vec![
+        "Signature verified (trust depends on system roots)".to_string()
+    ])
 }
 
 #[cfg(test)]
@@ -510,7 +535,11 @@ mod tests {
             Some(2.5),
             output.to_str().unwrap(),
         );
-        assert!(result.is_ok(), "add_signature_visual failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "add_signature_visual failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]

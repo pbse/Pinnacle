@@ -295,7 +295,7 @@ mod tests {
     fn test_extract_pdf_input_not_found() {
         use crate::pdf::test_utils::{setup_unique_paths, teardown_unique_paths};
         let (test_dir, output_dir) = setup_unique_paths("extract_not_found_input");
-        
+
         let bad_input_path = test_dir.join("no_way_this_exists.pdf");
         let output_path = output_dir.join("output_for_bad_input.pdf");
 
@@ -311,7 +311,7 @@ mod tests {
             println!("Expected error: {}", e);
             assert!(e.contains("Input file not found"), "Error message mismatch");
         }
-        
+
         teardown_unique_paths(&test_dir, &output_dir);
     }
 

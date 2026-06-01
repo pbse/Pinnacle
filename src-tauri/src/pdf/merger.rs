@@ -7,7 +7,9 @@ use std::path::Path;
 #[tauri::command]
 pub fn merge_pdfs(paths: Vec<&str>, output_path: &str) -> Result<(), String> {
     // --- Input Validation & Dir Creation (as before) ---
-    if paths.is_empty() { return Err("No PDF files provided for merging.".to_string()); }
+    if paths.is_empty() {
+        return Err("No PDF files provided for merging.".to_string());
+    }
     if paths.len() == 1 {
         let source_path = paths[0];
         let p = Path::new(source_path);
@@ -90,12 +92,12 @@ pub fn merge_pdfs(paths: Vec<&str>, output_path: &str) -> Result<(), String> {
             })?;
 
             {
-                let page_obj = target_doc.get_object_mut(new_page_id).map_err(|e| {
-                    format!("Failed to fetch copied page {:?}: {}", new_page_id, e)
-                })?;
-                let page_dict = page_obj.as_dict_mut().map_err(|_| {
-                    format!("Copied page {:?} is not a dictionary", new_page_id)
-                })?;
+                let page_obj = target_doc
+                    .get_object_mut(new_page_id)
+                    .map_err(|e| format!("Failed to fetch copied page {:?}: {}", new_page_id, e))?;
+                let page_dict = page_obj
+                    .as_dict_mut()
+                    .map_err(|_| format!("Copied page {:?} is not a dictionary", new_page_id))?;
                 page_dict.set("Parent", Object::Reference(target_pages_id));
             }
 
@@ -118,7 +120,9 @@ pub fn merge_pdfs(paths: Vec<&str>, output_path: &str) -> Result<(), String> {
             "Pages" => Object::Reference(target_pages_id),
         }),
     );
-    target_doc.trailer.set("Root", Object::Reference(target_catalog_id));
+    target_doc
+        .trailer
+        .set("Root", Object::Reference(target_catalog_id));
 
     target_doc.compress();
     target_doc
@@ -127,7 +131,6 @@ pub fn merge_pdfs(paths: Vec<&str>, output_path: &str) -> Result<(), String> {
 
     Ok(())
 }
-
 
 // --- Tests ---
 #[cfg(test)]
@@ -240,10 +243,15 @@ mod tests {
         create_minimal_pdf(path1.to_str().unwrap(), 1, "D1").expect("Create d1");
         create_minimal_pdf(path2.to_str().unwrap(), 2, "D2").expect("Create d2");
         create_minimal_pdf(path3.to_str().unwrap(), 3, "D3").expect("Create d3");
-        assert!(path1.exists()); assert!(path2.exists()); assert!(path3.exists());
+        assert!(path1.exists());
+        assert!(path2.exists());
+        assert!(path3.exists());
 
-
-        let paths_vec = vec![path1.to_str().unwrap(), path2.to_str().unwrap(), path3.to_str().unwrap()];
+        let paths_vec = vec![
+            path1.to_str().unwrap(),
+            path2.to_str().unwrap(),
+            path3.to_str().unwrap(),
+        ];
         let result = merge_pdfs(paths_vec, output_path.to_str().unwrap());
 
         assert!(result.is_ok(), "merge_pdfs failed: {:?}", result.err());
